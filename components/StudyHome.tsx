@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
-import { getLocalItems, pickLocalItem, rateLocalItem } from "@/lib/local-store";
+import { getLocalItems, pickLocalItem } from "@/lib/local-store";
 import type { StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -22,6 +22,10 @@ export default function StudyHome() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (window.location.hash.includes("error=")) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+
     const saved = localStorage.getItem("hanngu-visible-parts");
     if (saved) setVisible(JSON.parse(saved));
     refreshCount();
@@ -69,27 +73,6 @@ export default function StudyHome() {
     }
     const next = Array.isArray(data) ? data[0] : data;
     setItem(next || pickLocalItem());
-  }
-
-  async function rate(result: "thuoc" | "chua_thuoc") {
-    if (!item) return;
-    const supabase = createClient();
-    const delta = result === "thuoc" ? 1 : -1;
-    const nextMastery = Math.min(5, Math.max(1, item.mastery + delta));
-
-    if (item.id.startsWith("local-")) {
-      rateLocalItem(item.id, result);
-    } else {
-      const { error } = await supabase.from("items").update({ mastery: nextMastery, last_studied_at: new Date().toISOString() }).eq("id", item.id);
-      if (error) {
-        rateLocalItem(item.id, result);
-      } else {
-        await supabase.from("study_logs").insert({ item_id: item.id, result });
-      }
-    }
-
-    await pickNext();
-    await refreshCount();
   }
 
   function speak() {
@@ -182,15 +165,6 @@ export default function StudyHome() {
             </button>
             <button className={visible.meaning ? "toggle active" : "toggle"} type="button" onClick={() => setPart("meaning")}>
               {visible.meaning ? "Ẩn Nghĩa" : "Hiện Nghĩa"}
-            </button>
-          </div>
-
-          <div className="rating-grid">
-            <button className="ghost-button" type="button" onClick={() => rate("chua_thuoc")}>
-              Chưa thuộc
-            </button>
-            <button className="success-button" type="button" onClick={() => rate("thuoc")}>
-              Đã thuộc
             </button>
           </div>
 

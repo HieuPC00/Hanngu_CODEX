@@ -95,15 +95,10 @@
   line-height: 1.48;
 }
 
-.toggle-grid,
-.rating-grid {
+.toggle-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-}
-
-.rating-grid {
-  grid-template-columns: repeat(2, 1fr);
 }
 
 .toggle {
