@@ -25,18 +25,41 @@ export default function UploadClient() {
   async function extract() {
     setProcessing(true);
     const nextResults: ExtractResult[] = [];
-    for (let index = 0; index < files.length; index += 1) {
-      setProgress(`Đang xử lý ${index + 1}/${files.length}...`);
-      const formData = new FormData();
-      formData.append("image", files[index]);
-      formData.append("sourceName", sourceName);
-      const response = await fetch("/api/extract", { method: "POST", body: formData });
-      const payload = (await response.json()) as ExtractResult;
-      nextResults.push(payload);
-      setResults([...nextResults]);
+    try {
+      for (let index = 0; index < files.length; index += 1) {
+        const originalFile = files[index];
+        setProgress(`Đang xử lý ${index + 1}/${files.length}...`);
+
+        try {
+          const image = await compressImage(originalFile);
+          const formData = new FormData();
+          formData.append("image", image, image.name);
+          formData.append("sourceName", sourceName);
+
+          const response = await fetch("/api/extract", { method: "POST", body: formData });
+          const contentType = response.headers.get("content-type") || "";
+
+          if (!contentType.includes("application/json")) {
+            const text = await response.text();
+            throw new Error(text.slice(0, 180) || `HTTP ${response.status}`);
+          }
+
+          const payload = (await response.json()) as ExtractResult;
+          nextResults.push(response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` });
+        } catch (error) {
+          nextResults.push({
+            fileName: originalFile.name,
+            error: error instanceof Error ? error.message : "Không xử lý được ảnh này",
+            items: []
+          });
+        }
+
+        setResults([...nextResults]);
+      }
+    } finally {
+      setProgress("");
+      setProcessing(false);
     }
-    setProgress("");
-    setProcessing(false);
   }
 
   function updateItem(resultIndex: number, itemIndex: number, patch: Partial<ExtractedItem>) {
@@ -160,4 +183,50 @@ export default function UploadClient() {
       </button>
     </section>
   );
+}
+
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+
+  try {
+    const image = await loadImage(file);
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+
+    if (!context) return file;
+
+    context.drawImage(image, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+
+    if (!blob) return file;
+
+    const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
+    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Không đọc được ảnh"));
+    };
+
+    image.src = url;
+  });
 }

@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import type { ExtractedItem, ItemType } from "@/lib/types";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const allowedTypes: ItemType[] = ["word", "sentence", "dialogue"];
 
 export async function POST(request: Request) {
@@ -21,6 +24,14 @@ export async function POST(request: Request) {
 
   if (!(file instanceof File)) {
     return NextResponse.json({ fileName: "unknown", error: "Missing image", items: [] }, { status: 400 });
+  }
+
+  if (file.size > 12 * 1024 * 1024) {
+    return NextResponse.json({
+      fileName: file.name,
+      error: "Ảnh quá lớn. Hãy chụp/cắt ảnh gọn hơn rồi thử lại.",
+      items: []
+    });
   }
 
   const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -62,6 +73,16 @@ export async function POST(request: Request) {
 
   try {
     const items = await extractWithGroq(groqKey, imageUrl);
+    if (!items.length) {
+      return NextResponse.json({
+        fileName: file.name,
+        documentId: documentResult.data?.id,
+        imagePath,
+        error: "Không tìm thấy chữ Trung trong ảnh này. Hãy thử ảnh rõ hơn hoặc cắt sát vùng có chữ.",
+        items: []
+      });
+    }
+
     return NextResponse.json({
       fileName: file.name,
       documentId: documentResult.data?.id,
