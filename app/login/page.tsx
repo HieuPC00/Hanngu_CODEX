@@ -4,6 +4,8 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import "./login.css";
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://hanngu-codex.vercel.app";
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,7 +22,7 @@ export default function LoginPage() {
     const { error: signInError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${location.origin}/auth/callback`
+        emailRedirectTo: `${appUrl}/auth/callback`
       }
     });
 
