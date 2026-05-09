@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
+import { addLocalItems } from "@/lib/local-store";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
 
@@ -92,6 +93,7 @@ export default function UploadClient() {
 
   async function saveItems() {
     const supabase = createClient();
+    const extractedItems = results.flatMap((result) => result.items);
     const rows = results.flatMap((result) =>
       result.items.map((item) => ({
         document_id: result.documentId || null,
@@ -104,7 +106,10 @@ export default function UploadClient() {
     if (!rows.length) return;
     const { error } = await supabase.from("items").insert(rows);
     if (error) {
-      alert(error.message);
+      addLocalItems(extractedItems);
+      alert("Supabase chưa có bảng học liệu nên app đã lưu tạm trên máy này. Bạn vẫn có thể học ngay.");
+      router.push("/");
+      router.refresh();
       return;
     }
     router.push("/");

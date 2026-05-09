@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
+import { getLocalItems, pickLocalItem, rateLocalItem } from "@/lib/local-store";
 import type { StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -28,8 +29,14 @@ export default function StudyHome() {
 
   async function refreshCount() {
     const supabase = createClient();
-    const { count: itemCount } = await supabase.from("items").select("id", { count: "exact", head: true });
-    setCount(itemCount || 0);
+    const { count: itemCount, error } = await supabase.from("items").select("id", { count: "exact", head: true });
+
+    if (error) {
+      setCount(getLocalItems().length);
+      return;
+    }
+
+    setCount((itemCount || 0) + getLocalItems().length);
   }
 
   function setPart(part: keyof VisibleParts) {
@@ -47,11 +54,11 @@ export default function StudyHome() {
     });
     setLoading(false);
     if (error) {
-      alert(error.message);
+      setItem(pickLocalItem());
       return;
     }
     const next = Array.isArray(data) ? data[0] : data;
-    setItem(next || null);
+    setItem(next || pickLocalItem());
   }
 
   async function rate(result: "thuoc" | "chua_thuoc") {
@@ -59,8 +66,18 @@ export default function StudyHome() {
     const supabase = createClient();
     const delta = result === "thuoc" ? 1 : -1;
     const nextMastery = Math.min(5, Math.max(1, item.mastery + delta));
-    await supabase.from("items").update({ mastery: nextMastery, last_studied_at: new Date().toISOString() }).eq("id", item.id);
-    await supabase.from("study_logs").insert({ item_id: item.id, result });
+
+    if (item.id.startsWith("local-")) {
+      rateLocalItem(item.id, result);
+    } else {
+      const { error } = await supabase.from("items").update({ mastery: nextMastery, last_studied_at: new Date().toISOString() }).eq("id", item.id);
+      if (error) {
+        rateLocalItem(item.id, result);
+      } else {
+        await supabase.from("study_logs").insert({ item_id: item.id, result });
+      }
+    }
+
     await pickNext();
     await refreshCount();
   }
