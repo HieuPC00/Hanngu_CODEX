@@ -7,8 +7,8 @@ Mobile-first PWA for learning Chinese from uploaded images.
 - Next.js App Router on Vercel
 - Supabase Auth with Google OAuth
 - Supabase Postgres + RLS
-- Supabase Storage private bucket `documents`
-- Groq vision API through `/api/extract`
+- Gemini Vision API through `/api/extract`
+- Groq vision fallback if `GEMINI_API_KEY` is not configured
 
 ## Environment Variables
 
@@ -17,7 +17,9 @@ Set these in Vercel Project Settings. Do not commit real secrets to Git.
 ```text
 NEXT_PUBLIC_SUPABASE_URL=https://loxbneuilhdkneuuouhr.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_publishable_or_anon_key
-GROQ_API_KEY=your_groq_api_key
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-2.5-flash
+GROQ_API_KEY=optional_fallback_groq_api_key
 GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
@@ -36,5 +38,5 @@ https://your-app.vercel.app/auth/callback
 
 - `/login`: Google OAuth login
 - `/`: flashcard study
-- `/upload`: image upload, Groq extraction, editable preview
+- `/upload`: image upload, Gemini extraction, editable preview
 - `/library`: saved items

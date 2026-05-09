@@ -36,19 +36,23 @@ export async function POST(request: Request) {
   }
 
   const bytes = Buffer.from(await file.arrayBuffer());
-  const imageUrl = `data:${file.type || "image/jpeg"};base64,${bytes.toString("base64")}`;
+  const mimeType = file.type || "image/jpeg";
+  const imageBase64 = bytes.toString("base64");
 
+  const geminiKey = process.env.GEMINI_API_KEY;
   const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) {
+  if (!geminiKey && !groqKey) {
     return NextResponse.json({
       fileName: file.name,
-      error: "Missing GROQ_API_KEY on Vercel",
+      error: "Missing GEMINI_API_KEY on Vercel",
       items: []
     });
   }
 
   try {
-    const items = await extractWithGroq(groqKey, imageUrl);
+    const items = geminiKey
+      ? await extractWithGemini(geminiKey, imageBase64, mimeType)
+      : await extractWithGroq(groqKey as string, `data:${mimeType};base64,${imageBase64}`);
     if (!items.length) {
       return NextResponse.json({
         fileName: file.name,
@@ -71,15 +75,13 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json({
       fileName: file.name,
-      error: error instanceof Error ? error.message : "Groq extraction failed",
+      error: error instanceof Error ? error.message : "Image extraction failed",
       items: []
     });
   }
 }
 
-async function extractWithGroq(apiKey: string, imageUrl: string): Promise<ExtractedItem[]> {
-  const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
-  const prompt = `You are an OCR system for Mandarin Chinese learning cards for Vietnamese learners.
+const extractionPrompt = `You are an OCR system for Mandarin Chinese learning cards for Vietnamese learners.
 
 Extract ALL actual Chinese learning content from the entire image.
 
@@ -111,6 +113,89 @@ Strict field rules:
 8. Preserve the reading order of the page in the returned array.
 9. Prefer more complete extraction over a short summary. If the page has 20 study lines, return about 20 items.`;
 
+const responseJsonSchema = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: allowedTypes,
+            description: "word for vocabulary, sentence for standalone sentence/question, dialogue for multi-line conversation."
+          },
+          hanzi: {
+            type: "string",
+            description: "Original Chinese characters exactly visible in the image. No pinyin, no Vietnamese, no Latin text."
+          },
+          pinyin: {
+            type: "string",
+            description: "Romanized Mandarin pinyin with tone marks only. Generate it when the image has Chinese but no printed pinyin."
+          },
+          meaning: {
+            type: "string",
+            description: "Natural Vietnamese meaning only. No Chinese characters."
+          }
+        },
+        required: ["type", "hanzi", "pinyin", "meaning"]
+      }
+    }
+  },
+  required: ["items"]
+};
+
+async function extractWithGemini(apiKey: string, imageBase64: string, mimeType: string): Promise<ExtractedItem[]> {
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: extractionPrompt },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: imageBase64
+              }
+            }
+          ]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseJsonSchema
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Gemini error ${response.status}: ${text.slice(0, 220)}`);
+  }
+
+  const payload = await response.json();
+  const content = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
+  const parsed = JSON.parse(content || "{}");
+  const rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }> = Array.isArray(parsed.items)
+    ? parsed.items
+    : [];
+
+  return normalizeExtractedItems(rawItems);
+}
+
+async function extractWithGroq(apiKey: string, imageUrl: string): Promise<ExtractedItem[]> {
+  const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -126,7 +211,7 @@ Strict field rules:
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
+            { type: "text", text: extractionPrompt },
             { type: "image_url", image_url: { url: imageUrl } }
           ]
         }
@@ -146,6 +231,10 @@ Strict field rules:
     ? parsed.items
     : [];
 
+  return normalizeExtractedItems(rawItems);
+}
+
+function normalizeExtractedItems(rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }>): ExtractedItem[] {
   return rawItems
     .map((item): ExtractedItem => {
       const candidateType = item.type;
