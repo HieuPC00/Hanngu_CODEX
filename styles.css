@@ -1,0 +1,398 @@
+:root {
+  --ink: #14211c;
+  --muted: #66746d;
+  --paper: #f8fbf6;
+  --panel: #ffffff;
+  --line: #dce6df;
+  --soft: #edf6f1;
+  --accent: #126b5c;
+  --red: #bd3f32;
+  --gold: #c89022;
+  --shadow: 0 18px 45px rgba(20, 33, 28, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: linear-gradient(135deg, rgba(18, 107, 92, 0.12), transparent 32%), var(--paper);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 28px clamp(18px, 5vw, 56px) 18px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--red);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 0.96;
+}
+
+.summary {
+  display: flex;
+  gap: 10px;
+}
+
+.summary span {
+  min-width: 96px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  text-align: center;
+  font-weight: 800;
+}
+
+.summary strong {
+  display: block;
+  color: var(--accent);
+  font-size: 1.8rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 20px;
+  padding: 0 clamp(18px, 5vw, 56px) 42px;
+}
+
+.left-panel,
+.workspace,
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: var(--shadow);
+}
+
+.left-panel {
+  align-self: start;
+  padding: 14px;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab,
+.primary,
+.secondary,
+.review {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 850;
+}
+
+.tab {
+  background: white;
+  color: var(--muted);
+}
+
+.tab.active {
+  border-color: rgba(18, 107, 92, 0.28);
+  background: var(--soft);
+  color: var(--accent);
+}
+
+.panel-card {
+  padding: 14px;
+  margin-bottom: 12px;
+  box-shadow: none;
+}
+
+.auth-card {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-card p {
+  margin-bottom: 0;
+}
+
+.compact-actions {
+  margin-top: 0;
+}
+
+.panel-card h2,
+.card h3 {
+  margin-bottom: 8px;
+  font-size: 1rem;
+}
+
+.panel-card p,
+.section-head p,
+.card p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.workspace {
+  min-height: 720px;
+  overflow: hidden;
+}
+
+.view {
+  display: none;
+  padding: clamp(18px, 4vw, 34px);
+}
+
+.view.active {
+  display: block;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.section-head h2 {
+  margin-bottom: 8px;
+  font-size: clamp(1.5rem, 3vw, 2.6rem);
+}
+
+.card {
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+.capture-grid,
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 900;
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+}
+
+input.field {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+textarea.field {
+  min-height: 210px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.image-preview {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  margin-top: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.primary {
+  padding: 0 16px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.secondary {
+  display: inline-grid;
+  place-items: center;
+  padding: 0 16px;
+  background: white;
+  color: var(--ink);
+}
+
+.import-label input {
+  display: none;
+}
+
+.draft-list,
+.library-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-card {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.3fr) 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.hanzi {
+  font-size: 2rem;
+  font-weight: 950;
+}
+
+.meta {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.study-card {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  margin-bottom: 14px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(145deg, white, var(--soft));
+  text-align: center;
+}
+
+.study-hanzi {
+  font-size: clamp(4.5rem, 14vw, 10rem);
+  font-weight: 950;
+  line-height: 1;
+}
+
+.study-line {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.controls label {
+  font-weight: 850;
+}
+
+.review-actions {
+  margin-top: 0;
+}
+
+.review {
+  padding: 0 16px;
+  background: white;
+}
+
+.review.fail {
+  color: var(--red);
+}
+
+.review.hard {
+  color: var(--gold);
+}
+
+.review.good,
+.review.easy {
+  color: var(--accent);
+}
+
+code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 860px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .section-head {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 520px) {
+  .summary {
+    width: 100%;
+  }
+
+  .summary span {
+    flex: 1;
+  }
+
+  .mini-card {
+    grid-template-columns: 1fr;
+  }
+}
