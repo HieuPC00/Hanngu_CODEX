@@ -21,12 +21,15 @@ const client = new pg.Client({
 try {
   await client.connect();
   await client.query(schema);
+  await client.query("notify pgrst, 'reload schema'");
 
   const result = await client.query(`
     select
       to_regclass('public.documents') as documents,
       to_regclass('public.items') as items,
-      to_regclass('public.study_logs') as study_logs
+      to_regclass('public.study_logs') as study_logs,
+      exists(select 1 from storage.buckets where id = 'documents') as documents_bucket,
+      to_regprocedure('public.pick_next_item(uuid, integer)') as pick_next_item
   `);
 
   console.log("Supabase schema setup completed.");
