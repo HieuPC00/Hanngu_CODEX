@@ -81,7 +81,16 @@ async function extractWithGroq(apiKey: string, imageUrl: string): Promise<Extrac
   const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
   const prompt = `You are an OCR system for Mandarin Chinese learning cards for Vietnamese learners.
 
-Extract ONLY actual Chinese learning content from the image.
+Extract ALL actual Chinese learning content from the entire image.
+
+Important coverage rules:
+- Scan the full image from top to bottom and left to right. Do not stop after the first clear section.
+- The page may contain multiple sections: pinyin + Chinese examples, Chinese-only exercises, questions, dialogues, numbered practice lines, and short instructions. Extract every visible Chinese sentence, question, vocabulary item, and dialogue line that a learner could study.
+- If one line has pinyin followed by Chinese in parentheses, use the Chinese in parentheses as "hanzi" and use the printed pinyin for "pinyin".
+- If a Chinese sentence/question/dialogue has no printed pinyin, still extract it and generate accurate pinyin with tone marks from the Chinese text.
+- If a Chinese sentence/question/dialogue has no Vietnamese meaning printed, generate a natural Vietnamese meaning.
+- Include lower-page exercise content such as numbered sentences, questions, and A/B dialogue. Do not ignore it because it looks like an exercise.
+- Omit only pure page UI, page numbers, watermarks, ads, website/browser text, and non-learning headers/footers.
 
 Return valid JSON only:
 {"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}
@@ -98,7 +107,9 @@ Strict field rules:
 4. For dialogue, keep corresponding lines separated by \\n in hanzi, pinyin, and meaning.
 5. Use type="word" for single vocabulary, "sentence" for standalone sentences, "dialogue" for multi-line conversations.
 6. Ignore page numbers, UI text, watermarks, headers, and footers.
-7. Do not invent content. Do not translate Vietnamese-only text into Chinese.`;
+7. Do not invent extra Chinese content. It is allowed to generate pinyin and Vietnamese meaning from Chinese that is actually visible in the image.
+8. Preserve the reading order of the page in the returned array.
+9. Prefer more complete extraction over a short summary. If the page has 20 study lines, return about 20 items.`;
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -109,6 +120,7 @@ Strict field rules:
     body: JSON.stringify({
       model,
       temperature: 0.1,
+      max_completion_tokens: 8192,
       response_format: { type: "json_object" },
       messages: [
         {
