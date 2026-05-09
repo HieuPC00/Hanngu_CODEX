@@ -5,24 +5,32 @@ import { createClient } from "@/lib/supabase-browser";
 import "./login.css";
 
 export default function LoginPage() {
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
 
-  async function signInWithGoogle() {
+  async function signInWithEmail(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setLoading(true);
     setError("");
+    setSent(false);
+
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+    const { error: signInError } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
       options: {
-        redirectTo: `${location.origin}/auth/callback`
+        emailRedirectTo: `${location.origin}/auth/callback`
       }
     });
 
     if (signInError) {
       setError(signInError.message);
-      setLoading(false);
+    } else {
+      setSent(true);
     }
+
+    setLoading(false);
   }
 
   return (
@@ -30,11 +38,24 @@ export default function LoginPage() {
       <section className="login-card">
         <div className="login-logo">汉</div>
         <h1>Hán Ngữ</h1>
-        <p>Đăng nhập để đồng bộ bài học, ảnh và tiến độ giữa các thiết bị.</p>
-        <button className="google-button" type="button" onClick={signInWithGoogle} disabled={loading}>
-          <span className="google-icon">G</span>
-          {loading ? "Đang chuyển..." : "Đăng nhập với Google"}
-        </button>
+        <p>Nhập email, hệ thống sẽ gửi link đăng nhập. Mở link đó là vào app, không cần mật khẩu.</p>
+        <form className="email-login-form" onSubmit={signInWithEmail}>
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="email của bạn"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+          <button className="email-button" type="submit" disabled={loading}>
+            {loading ? "Đang gửi..." : "Gửi link đăng nhập"}
+          </button>
+        </form>
+        {sent ? <p className="login-success">Đã gửi link. Hãy mở email và bấm vào link đăng nhập.</p> : null}
         {error ? <p className="login-error">{error}</p> : null}
       </section>
     </main>
