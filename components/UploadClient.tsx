@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { addLocalItems } from "@/lib/local-store";
+import { cleanMeaning, hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
 
@@ -15,7 +16,10 @@ export default function UploadClient() {
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<ExtractResult[]>([]);
 
-  const itemCount = useMemo(() => results.reduce((sum, result) => sum + result.items.length, 0), [results]);
+  const validItemCount = useMemo(
+    () => results.reduce((sum, result) => sum + result.items.filter(isValidStudyItem).length, 0),
+    [results]
+  );
 
   function chooseFiles(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files || []).slice(0, 10);
@@ -93,17 +97,23 @@ export default function UploadClient() {
 
   async function saveItems() {
     const supabase = createClient();
-    const extractedItems = results.flatMap((result) => result.items);
+    const extractedItems = results.flatMap((result) => result.items.map(normalizeStudyItem).filter(isValidStudyItem));
     const rows = results.flatMap((result) =>
-      result.items.map((item) => ({
-        document_id: result.documentId || null,
-        type: item.type,
-        hanzi: item.hanzi,
-        pinyin: item.pinyin,
-        meaning: item.meaning
-      }))
+      result.items
+        .map(normalizeStudyItem)
+        .filter(isValidStudyItem)
+        .map((item) => ({
+          document_id: result.documentId || null,
+          type: item.type,
+          hanzi: item.hanzi,
+          pinyin: item.pinyin,
+          meaning: item.meaning
+        }))
     );
-    if (!rows.length) return;
+    if (!rows.length) {
+      alert("Chưa có mục hợp lệ để lưu. Ô Hán tự phải có chữ Trung, pinyin không được chứa Hán tự.");
+      return;
+    }
     const { error } = await supabase.from("items").insert(rows);
     if (error) {
       addLocalItems(extractedItems);
@@ -129,8 +139,11 @@ export default function UploadClient() {
                 <strong>{result.fileName}</strong>
                 {result.error ? <span className="error-text">{result.error}</span> : null}
               </header>
-              {result.items.map((item, itemIndex) => (
-                <div className="preview-item" key={`${item.hanzi}-${itemIndex}`}>
+              {result.items.map((item, itemIndex) => {
+                const isInvalid = !isValidStudyItem(item);
+
+                return (
+                <div className={isInvalid ? "preview-item invalid-item" : "preview-item"} key={`${item.hanzi}-${itemIndex}`}>
                   <div className="row">
                     <select
                       className="select"
@@ -145,11 +158,13 @@ export default function UploadClient() {
                       Xóa
                     </button>
                   </div>
+                  {isInvalid ? <p className="validation-text">Mục này chưa hợp lệ: ô Hán tự phải có chữ Trung, pinyin không được chứa Hán tự.</p> : null}
                   <textarea className="textarea hanzi-input" value={item.hanzi} onChange={(e) => updateItem(resultIndex, itemIndex, { hanzi: e.target.value })} />
                   <textarea className="textarea pinyin-input" value={item.pinyin} onChange={(e) => updateItem(resultIndex, itemIndex, { pinyin: e.target.value })} />
                   <textarea className="textarea" value={item.meaning} onChange={(e) => updateItem(resultIndex, itemIndex, { meaning: e.target.value })} />
                 </div>
-              ))}
+                );
+              })}
             </article>
           ))}
         </div>
@@ -158,8 +173,8 @@ export default function UploadClient() {
           <button className="ghost-button" type="button" onClick={cancel}>
             Hủy
           </button>
-          <button className="success-button" type="button" onClick={saveItems} disabled={!itemCount}>
-            Lưu {itemCount} mục
+          <button className="success-button" type="button" onClick={saveItems} disabled={!validItemCount}>
+            Lưu {validItemCount} mục
           </button>
         </footer>
       </section>
@@ -188,6 +203,19 @@ export default function UploadClient() {
       </button>
     </section>
   );
+}
+
+function normalizeStudyItem(item: ExtractedItem): ExtractedItem {
+  return {
+    ...item,
+    hanzi: item.hanzi.trim(),
+    pinyin: hasChineseInPinyin(item.pinyin) ? "" : item.pinyin.trim(),
+    meaning: cleanMeaning(item.meaning)
+  };
+}
+
+function isValidStudyItem(item: ExtractedItem) {
+  return hasChineseText(item.hanzi) && !hasChineseInPinyin(item.pinyin);
 }
 
 async function compressImage(file: File): Promise<File> {

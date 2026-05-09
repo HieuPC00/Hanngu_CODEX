@@ -44,6 +44,22 @@ create table if not exists public.study_logs (
   studied_at timestamptz not null default now()
 );
 
+create or replace function public.has_chinese_text(value text)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(value, '') ~ '[一-龯]';
+$$;
+
+delete from public.items
+where not public.has_chinese_text(hanzi)
+   or public.has_chinese_text(pinyin);
+
+update public.items
+set meaning = btrim(regexp_replace(coalesce(meaning, ''), '[一-龯]+', '', 'g'))
+where public.has_chinese_text(meaning);
+
 alter table public.documents enable row level security;
 alter table public.items enable row level security;
 alter table public.study_logs enable row level security;
@@ -120,6 +136,7 @@ begin
   select id into picked_id
   from public.items
   where user_id = auth.uid()
+    and public.has_chinese_text(hanzi)
     and (p_document_id is null or document_id = p_document_id)
     and mastery <= p_max_mastery
   order by shown_count asc, last_shown_at asc nulls first, random()

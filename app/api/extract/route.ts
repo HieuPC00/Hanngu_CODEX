@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
+import { cleanMeaning, hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
 import type { ExtractedItem, ItemType } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -102,16 +103,26 @@ export async function POST(request: Request) {
 
 async function extractWithGroq(apiKey: string, imageUrl: string): Promise<ExtractedItem[]> {
   const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
-  const prompt = `Bạn là hệ thống OCR và biên soạn học liệu tiếng Trung cho người Việt.
-Trích xuất TẤT CẢ nội dung tiếng Trung trong ảnh theo thứ tự xuất hiện.
-Quy tắc:
-- Câu hoàn chỉnh độc lập: type="sentence".
-- Đoạn hội thoại nhiều dòng liên tiếp: type="dialogue"; hanzi, pinyin, meaning đều dùng \\n tương ứng từng dòng.
-- Từ vựng đơn lẻ: type="word".
-- Pinyin có dấu chuẩn, ví dụ nǐ hǎo, không dùng ni3 hao3.
-- Nghĩa tiếng Việt tự nhiên, không dịch word-by-word.
-- Bỏ qua header, footer, số trang, watermark.
-Chỉ trả JSON hợp lệ dạng {"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}.`;
+  const prompt = `You are an OCR system for Mandarin Chinese learning cards for Vietnamese learners.
+
+Extract ONLY actual Chinese learning content from the image.
+
+Return valid JSON only:
+{"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}
+
+Strict field rules:
+1. "hanzi" MUST contain the original Chinese characters from the image, for example: 这台电脑五千块钱。
+   - NEVER put pinyin, Vietnamese, English, Latin letters, or translations in "hanzi".
+   - If you cannot read the Chinese characters, omit that item.
+2. "pinyin" MUST contain only romanized pinyin with tone marks, for example: zhè tái diànnǎo wǔ qiān kuài qián.
+   - NEVER put Chinese characters in "pinyin".
+3. "meaning" MUST be natural Vietnamese only.
+   - NEVER include Chinese characters in "meaning".
+   - Example: "Chiếc máy tính này năm nghìn tệ."
+4. For dialogue, keep corresponding lines separated by \\n in hanzi, pinyin, and meaning.
+5. Use type="word" for single vocabulary, "sentence" for standalone sentences, "dialogue" for multi-line conversations.
+6. Ignore page numbers, UI text, watermarks, headers, and footers.
+7. Do not invent content. Do not translate Vietnamese-only text into Chinese.`;
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -154,9 +165,9 @@ Chỉ trả JSON hợp lệ dạng {"items":[{"type":"word|sentence|dialogue","h
       return {
         type,
         hanzi: String(item.hanzi || "").trim(),
-        pinyin: String(item.pinyin || "").trim(),
-        meaning: String(item.meaning || "").trim()
+        pinyin: hasChineseInPinyin(item.pinyin) ? "" : String(item.pinyin || "").trim(),
+        meaning: cleanMeaning(item.meaning)
       };
     })
-    .filter((item) => item.hanzi);
+    .filter((item) => hasChineseText(item.hanzi));
 }

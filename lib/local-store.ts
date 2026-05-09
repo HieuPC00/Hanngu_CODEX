@@ -1,4 +1,5 @@
 import type { ExtractedItem, StudyItem } from "@/lib/types";
+import { hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
 
 const itemsKey = "hanngu-local-items";
 const logsKey = "hanngu-local-study-logs";
@@ -100,6 +101,7 @@ function addLocalLog(log: LocalLog) {
 
 function normalizeItem(item: Partial<StudyItem> | null): StudyItem | null {
   if (!item?.id || !item.hanzi) return null;
+  if (!hasChineseText(item.hanzi) || hasChineseInPinyin(item.pinyin)) return null;
 
   return {
     id: String(item.id),
