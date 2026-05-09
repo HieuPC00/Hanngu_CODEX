@@ -8,7 +8,6 @@ Mobile-first PWA for learning Chinese from uploaded images.
 - Supabase Auth with Google OAuth
 - Supabase Postgres + RLS
 - Gemini Vision API through `/api/extract`
-- Groq vision fallback if `GEMINI_API_KEY` is not configured
 
 ## Environment Variables
 
@@ -19,8 +18,6 @@ NEXT_PUBLIC_SUPABASE_URL=https://loxbneuilhdkneuuouhr.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_publishable_or_anon_key
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-2.5-flash
-GROQ_API_KEY=optional_fallback_groq_api_key
-GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
 ## Supabase Setup

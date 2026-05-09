@@ -40,8 +40,7 @@ export async function POST(request: Request) {
   const imageBase64 = bytes.toString("base64");
 
   const geminiKey = process.env.GEMINI_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!geminiKey && !groqKey) {
+  if (!geminiKey) {
     return NextResponse.json({
       fileName: file.name,
       error: "Missing GEMINI_API_KEY on Vercel",
@@ -50,9 +49,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const items = geminiKey
-      ? await extractWithGemini(geminiKey, imageBase64, mimeType)
-      : await extractWithGroq(groqKey as string, `data:${mimeType};base64,${imageBase64}`);
+    const items = await extractWithGemini(geminiKey, imageBase64, mimeType);
     if (!items.length) {
       return NextResponse.json({
         fileName: file.name,
@@ -180,52 +177,11 @@ async function extractWithGemini(apiKey: string, imageBase64: string, mimeType: 
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Gemini error ${response.status}: ${text.slice(0, 220)}`);
+    throw new Error(formatGeminiError(response.status, text));
   }
 
   const payload = await response.json();
   const content = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
-  const parsed = JSON.parse(content || "{}");
-  const rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }> = Array.isArray(parsed.items)
-    ? parsed.items
-    : [];
-
-  return normalizeExtractedItems(rawItems);
-}
-
-async function extractWithGroq(apiKey: string, imageUrl: string): Promise<ExtractedItem[]> {
-  const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      max_completion_tokens: 8192,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: extractionPrompt },
-            { type: "image_url", image_url: { url: imageUrl } }
-          ]
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Groq error ${response.status}: ${text.slice(0, 220)}`);
-  }
-
-  const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content;
   const parsed = JSON.parse(content || "{}");
   const rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }> = Array.isArray(parsed.items)
     ? parsed.items
@@ -247,4 +203,20 @@ function normalizeExtractedItems(rawItems: Array<{ type?: ItemType; hanzi?: stri
       };
     })
     .filter((item) => hasChineseText(item.hanzi));
+}
+
+function formatGeminiError(status: number, body: string) {
+  if (status === 429) {
+    return "Gemini đã hết quota miễn phí hoặc vượt giới hạn tạm thời. Hãy lưu các mục đã trích được, đợi quota hồi lại rồi upload tiếp ít ảnh hơn.";
+  }
+
+  if (status === 400) {
+    return "Gemini không nhận được ảnh này. Hãy thử chụp/cắt ảnh rõ hơn rồi upload lại.";
+  }
+
+  if (status === 401 || status === 403) {
+    return "Gemini API key chưa hợp lệ hoặc chưa có quyền dùng API.";
+  }
+
+  return `Gemini lỗi ${status}: ${body.slice(0, 160)}`;
 }

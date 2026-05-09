@@ -58,23 +58,13 @@ export default function UploadClient() {
         setProgress(`Đang xử lý ${index + 1}/${files.length}...`);
 
         try {
-          const ocrImages = await prepareOcrImages(originalFile);
-          const parts: ExtractResult[] = [];
-
-          for (let partIndex = 0; partIndex < ocrImages.length; partIndex += 1) {
-            const image = ocrImages[partIndex];
-            const partLabel = ocrImages.length > 1 ? ` phần ${partIndex + 1}/${ocrImages.length}` : "";
-            setProgress(`Đang xử lý ${index + 1}/${files.length}${partLabel}...`);
-            parts.push(await extractImage(image, sourceName));
-          }
-
-          const items = parts.flatMap((part) => part.items);
-          const errors = parts.map((part) => part.error).filter(Boolean);
+          const image = await prepareOcrImage(originalFile);
+          const result = await extractImage(image, sourceName);
           nextResults.push({
             fileName: originalFile.name,
-            documentId: parts.find((part) => part.documentId)?.documentId,
-            error: errors.length ? errors.join(" | ") : undefined,
-            items: items.map(normalizeStudyItem)
+            documentId: result.documentId,
+            error: result.error,
+            items: result.items.map(normalizeStudyItem)
           });
         } catch (error) {
           nextResults.push({
@@ -232,7 +222,7 @@ export default function UploadClient() {
   return (
     <section>
       <h1 className="page-title">Upload ảnh</h1>
-      <p className="page-subtitle">Chọn tối đa 10 ảnh có chữ Trung. Ảnh sẽ xử lý tuần tự để tránh rate limit.</p>
+      <p className="page-subtitle">Chọn tối đa 10 ảnh có chữ Trung. Mỗi ảnh chỉ gọi AI một lần để tiết kiệm quota.</p>
 
       <label className="drop-zone">
         <span className="camera-icon">📷</span>
@@ -348,40 +338,91 @@ function isSaveableStudyItem(item: PreviewItem) {
   return isValidStudyItem(item) && (!item.duplicateOf || item.allowDuplicate);
 }
 
-async function prepareOcrImages(file: File): Promise<File[]> {
-  if (!file.type.startsWith("image/")) return [file];
+async function prepareOcrImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
 
   try {
     const image = await loadImage(file);
-    const maxSide = 2600;
-    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
     const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
-    const shouldTile = height > 1500 && height / width > 1.55;
+    const trim = detectUsefulImageBounds(image);
+    const sourceWidth = trim.right - trim.left;
+    const sourceHeight = trim.bottom - trim.top;
+    const maxLongSide = 3200;
+    const scale = Math.min(1, maxLongSide / Math.max(sourceWidth, sourceHeight));
+    const targetWidth = Math.max(1, Math.round(sourceWidth * scale));
+    const targetHeight = Math.max(1, Math.round(sourceHeight * scale));
 
-    if (!shouldTile) {
-      return [await renderImageTile(image, `${baseName}.jpg`, scale, 0, height, width)];
-    }
-
-    const tileCount = Math.min(4, Math.max(2, Math.ceil(height / Math.max(width * 1.15, 900))));
-    const overlap = Math.min(180, Math.round(height / (tileCount * 8)));
-    const tileHeight = height / tileCount;
-    const tiles: File[] = [];
-
-    for (let tileIndex = 0; tileIndex < tileCount; tileIndex += 1) {
-      const y = Math.max(0, Math.round(tileIndex * tileHeight - overlap));
-      const bottom = Math.min(height, Math.round((tileIndex + 1) * tileHeight + overlap));
-      tiles.push(await renderImageTile(image, `${baseName}-part-${tileIndex + 1}.jpg`, scale, y, bottom - y, width));
-    }
-
-    return tiles;
+    return await renderImageCrop(image, `${baseName}.jpg`, trim.left, trim.top, sourceWidth, sourceHeight, targetWidth, targetHeight);
   } catch {
-    return [file];
+    return file;
   }
 }
 
-async function renderImageTile(image: HTMLImageElement, name: string, scale: number, targetY: number, targetHeight: number, targetWidth: number): Promise<File> {
+function detectUsefulImageBounds(image: HTMLImageElement) {
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+  const sampleWidth = Math.min(900, width);
+  const sampleHeight = Math.min(1400, height);
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleWidth;
+  canvas.height = sampleHeight;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return { left: 0, top: 0, right: width, bottom: height };
+  }
+
+  context.drawImage(image, 0, 0, sampleWidth, sampleHeight);
+  const data = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
+  let left = sampleWidth;
+  let top = sampleHeight;
+  let right = 0;
+  let bottom = 0;
+
+  for (let y = 0; y < sampleHeight; y += 2) {
+    for (let x = 0; x < sampleWidth; x += 2) {
+      const offset = (y * sampleWidth + x) * 4;
+      const r = data[offset];
+      const g = data[offset + 1];
+      const b = data[offset + 2];
+      const dark = r < 235 || g < 235 || b < 235;
+
+      if (dark) {
+        left = Math.min(left, x);
+        top = Math.min(top, y);
+        right = Math.max(right, x);
+        bottom = Math.max(bottom, y);
+      }
+    }
+  }
+
+  if (right <= left || bottom <= top) {
+    return { left: 0, top: 0, right: width, bottom: height };
+  }
+
+  const scaleX = width / sampleWidth;
+  const scaleY = height / sampleHeight;
+  const paddingX = Math.round(width * 0.025);
+  const paddingY = Math.round(height * 0.025);
+
+  return {
+    left: Math.max(0, Math.floor(left * scaleX) - paddingX),
+    top: Math.max(0, Math.floor(top * scaleY) - paddingY),
+    right: Math.min(width, Math.ceil(right * scaleX) + paddingX),
+    bottom: Math.min(height, Math.ceil(bottom * scaleY) + paddingY)
+  };
+}
+
+async function renderImageCrop(
+  image: HTMLImageElement,
+  name: string,
+  sourceX: number,
+  sourceY: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number
+): Promise<File> {
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
@@ -389,20 +430,9 @@ async function renderImageTile(image: HTMLImageElement, name: string, scale: num
 
   if (!context) throw new Error("Không xử lý được ảnh");
 
-  const sourceY = Math.max(0, targetY / scale);
-  const sourceHeight = Math.min(image.naturalHeight - sourceY, targetHeight / scale);
-
-  context.drawImage(
-    image,
-    0,
-    sourceY,
-    image.naturalWidth,
-    sourceHeight,
-    0,
-    0,
-    targetWidth,
-    targetHeight
-  );
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, targetWidth, targetHeight);
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
   if (!blob) throw new Error("Không nén được ảnh");
