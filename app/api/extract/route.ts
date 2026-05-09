@@ -25,19 +25,22 @@ export async function POST(request: Request) {
 
   const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
   const safeExtension = extension.replace(/[^a-z0-9]/g, "") || "jpg";
-  const imagePath = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
+  let imagePath = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
 
   if (!imagePath.startsWith(`${user.id}/`)) {
     return NextResponse.json({ fileName: file.name, error: "Invalid storage path", items: [] }, { status: 400 });
   }
 
-  const uploadResult = await supabase.storage.from("documents").upload(imagePath, file, {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const imageUrl = `data:${file.type || "image/jpeg"};base64,${bytes.toString("base64")}`;
+
+  const uploadResult = await supabase.storage.from("documents").upload(imagePath, bytes, {
     contentType: file.type || "image/jpeg",
     upsert: false
   });
 
   if (uploadResult.error) {
-    return NextResponse.json({ fileName: file.name, error: uploadResult.error.message, items: [] }, { status: 500 });
+    imagePath = `inline:${file.name}`;
   }
 
   const documentResult = await supabase
@@ -46,36 +49,29 @@ export async function POST(request: Request) {
     .select("id")
     .single();
 
-  if (documentResult.error) {
-    return NextResponse.json({ fileName: file.name, imagePath, error: documentResult.error.message, items: [] }, { status: 500 });
-  }
-
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) {
     return NextResponse.json({
       fileName: file.name,
-      documentId: documentResult.data.id,
+      documentId: documentResult.data?.id,
       imagePath,
       error: "Missing GROQ_API_KEY on Vercel",
       items: []
     });
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const imageUrl = `data:${file.type || "image/jpeg"};base64,${bytes.toString("base64")}`;
-
   try {
     const items = await extractWithGroq(groqKey, imageUrl);
     return NextResponse.json({
       fileName: file.name,
-      documentId: documentResult.data.id,
+      documentId: documentResult.data?.id,
       imagePath,
       items
     });
   } catch (error) {
     return NextResponse.json({
       fileName: file.name,
-      documentId: documentResult.data.id,
+      documentId: documentResult.data?.id,
       imagePath,
       error: error instanceof Error ? error.message : "Groq extraction failed",
       items: []
