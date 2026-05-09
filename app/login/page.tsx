@@ -1,16 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import "./login.css";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://hanngu-codex.vercel.app";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    const currentParams = new URLSearchParams(window.location.search);
+    const code = currentParams.get("code");
+
+    if (code) {
+      window.location.replace(`/auth/callback?${currentParams.toString()}`);
+      return;
+    }
+
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) router.replace("/");
+    });
+  }, [router]);
 
   async function signInWithEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
