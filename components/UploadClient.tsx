@@ -58,24 +58,23 @@ export default function UploadClient() {
         setProgress(`Đang xử lý ${index + 1}/${files.length}...`);
 
         try {
-          const image = await compressImage(originalFile);
-          const formData = new FormData();
-          formData.append("image", image, image.name);
-          formData.append("sourceName", sourceName);
+          const ocrImages = await prepareOcrImages(originalFile);
+          const parts: ExtractResult[] = [];
 
-          const response = await fetch("/api/extract", { method: "POST", body: formData });
-          const contentType = response.headers.get("content-type") || "";
-
-          if (!contentType.includes("application/json")) {
-            const text = await response.text();
-            throw new Error(text.slice(0, 180) || `HTTP ${response.status}`);
+          for (let partIndex = 0; partIndex < ocrImages.length; partIndex += 1) {
+            const image = ocrImages[partIndex];
+            const partLabel = ocrImages.length > 1 ? ` phần ${partIndex + 1}/${ocrImages.length}` : "";
+            setProgress(`Đang xử lý ${index + 1}/${files.length}${partLabel}...`);
+            parts.push(await extractImage(image, sourceName));
           }
 
-          const payload = (await response.json()) as ExtractResult;
-          const result = response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` };
+          const items = parts.flatMap((part) => part.items);
+          const errors = parts.map((part) => part.error).filter(Boolean);
           nextResults.push({
-            ...result,
-            items: result.items.map(normalizeStudyItem)
+            fileName: originalFile.name,
+            documentId: parts.find((part) => part.documentId)?.documentId,
+            error: errors.length ? errors.join(" | ") : undefined,
+            items: items.map(normalizeStudyItem)
           });
         } catch (error) {
           nextResults.push({
@@ -254,6 +253,23 @@ export default function UploadClient() {
   );
 }
 
+async function extractImage(image: File, sourceName: string): Promise<ExtractResult> {
+  const formData = new FormData();
+  formData.append("image", image, image.name);
+  formData.append("sourceName", sourceName);
+
+  const response = await fetch("/api/extract", { method: "POST", body: formData });
+  const contentType = response.headers.get("content-type") || "";
+
+  if (!contentType.includes("application/json")) {
+    const text = await response.text();
+    throw new Error(text.slice(0, 180) || `HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as ExtractResult;
+  return response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` };
+}
+
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from("items").select("id,type,hanzi,pinyin,meaning").range(0, 9999);
@@ -332,8 +348,8 @@ function isSaveableStudyItem(item: PreviewItem) {
   return isValidStudyItem(item) && (!item.duplicateOf || item.allowDuplicate);
 }
 
-async function compressImage(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
+async function prepareOcrImages(file: File): Promise<File[]> {
+  if (!file.type.startsWith("image/")) return [file];
 
   try {
     const image = await loadImage(file);
@@ -341,23 +357,57 @@ async function compressImage(file: File): Promise<File> {
     const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
     const width = Math.max(1, Math.round(image.naturalWidth * scale));
     const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-
-    if (!context) return file;
-
-    context.drawImage(image, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-
-    if (!blob) return file;
-
     const baseName = file.name.replace(/\.[^.]+$/, "") || "image";
-    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+    const shouldTile = height > 1500 && height / width > 1.55;
+
+    if (!shouldTile) {
+      return [await renderImageTile(image, `${baseName}.jpg`, scale, 0, height, width)];
+    }
+
+    const tileCount = Math.min(4, Math.max(2, Math.ceil(height / Math.max(width * 1.15, 900))));
+    const overlap = Math.min(180, Math.round(height / (tileCount * 8)));
+    const tileHeight = height / tileCount;
+    const tiles: File[] = [];
+
+    for (let tileIndex = 0; tileIndex < tileCount; tileIndex += 1) {
+      const y = Math.max(0, Math.round(tileIndex * tileHeight - overlap));
+      const bottom = Math.min(height, Math.round((tileIndex + 1) * tileHeight + overlap));
+      tiles.push(await renderImageTile(image, `${baseName}-part-${tileIndex + 1}.jpg`, scale, y, bottom - y, width));
+    }
+
+    return tiles;
   } catch {
-    return file;
+    return [file];
   }
+}
+
+async function renderImageTile(image: HTMLImageElement, name: string, scale: number, targetY: number, targetHeight: number, targetWidth: number): Promise<File> {
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+
+  if (!context) throw new Error("Không xử lý được ảnh");
+
+  const sourceY = Math.max(0, targetY / scale);
+  const sourceHeight = Math.min(image.naturalHeight - sourceY, targetHeight / scale);
+
+  context.drawImage(
+    image,
+    0,
+    sourceY,
+    image.naturalWidth,
+    sourceHeight,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("Không nén được ảnh");
+
+  return new File([blob], name, { type: "image/jpeg" });
 }
 
 function loadImage(file: File): Promise<HTMLImageElement> {
