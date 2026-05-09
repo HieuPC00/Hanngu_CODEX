@@ -1,39 +1,40 @@
-# Mandarin Capture
+# Hán Ngữ
 
-Static PWA for creating and studying Mandarin flashcards from images or Chinese text.
+Mobile-first PWA for learning Chinese from uploaded images.
 
-## Public Web With Login
+## Stack
 
-Use the free path:
+- Next.js App Router on Vercel
+- Supabase Auth with Google OAuth
+- Supabase Postgres + RLS
+- Supabase Storage private bucket `documents`
+- Groq vision API through `/api/extract`
 
-1. Push this folder to GitHub.
-2. Deploy the repo to Vercel as a static site. No build command is required.
-3. Create a free Supabase project.
-4. Run `supabase-schema.sql` in Supabase SQL Editor.
-5. In Supabase Auth settings, add your Vercel domain to allowed redirect URLs.
-6. Copy Supabase Project URL and anon public key into `config.js`.
+## Environment Variables
 
-`config.js`:
+Set these in Vercel Project Settings. Do not commit real secrets to Git.
 
-```js
-window.MANDARIN_CAPTURE_CONFIG = {
-  supabaseUrl: "https://YOUR_PROJECT.supabase.co",
-  supabaseAnonKey: "YOUR_ANON_PUBLIC_KEY"
-};
+```text
+NEXT_PUBLIC_SUPABASE_URL=https://loxbneuilhdkneuuouhr.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_publishable_or_anon_key
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 ```
 
-The anon key is designed for browser apps. Row Level Security in `supabase-schema.sql` ensures each user only reads/writes their own deck.
+## Supabase Setup
 
-## Current Features
+1. Run `supabase-schema.sql` in Supabase SQL Editor.
+2. Enable Google provider in Authentication.
+3. Add Vercel URLs to Authentication redirect URLs:
 
-- Email magic-link login.
-- Local study when logged out.
-- Cloud sync when logged in.
-- JSON backup import/export.
-- Image input placeholder and text-to-card creation.
+```text
+https://your-app.vercel.app/**
+https://your-app.vercel.app/auth/callback
+```
 
-## Next Work
+## Routes
 
-- Add OCR with Tesseract.js.
-- Add full pinyin generation.
-- Add offline dictionary data.
+- `/login`: Google OAuth login
+- `/`: flashcard study
+- `/upload`: image upload, Groq extraction, editable preview
+- `/library`: saved items

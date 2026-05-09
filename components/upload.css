@@ -1,0 +1,78 @@
+.drop-zone {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 240px;
+  margin-bottom: 16px;
+  border: 2px dashed var(--line);
+  border-radius: 22px;
+  background: white;
+  text-align: center;
+}
+
+.drop-zone input {
+  display: none;
+}
+
+.camera-icon {
+  font-size: 3.5rem;
+}
+
+.source-field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-weight: 900;
+}
+
+.preview-stack {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 82px;
+}
+
+.result-card {
+  padding: 14px;
+}
+
+.result-head {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.error-text {
+  color: var(--red);
+  font-weight: 850;
+}
+
+.preview-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.hanzi-input {
+  font-size: 1.5rem;
+  font-weight: 900;
+}
+
+.pinyin-input {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.upload-footer {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: rgba(255, 248, 247, 0.96);
+}
