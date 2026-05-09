@@ -35,38 +35,13 @@ export async function POST(request: Request) {
     });
   }
 
-  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-  const safeExtension = extension.replace(/[^a-z0-9]/g, "") || "jpg";
-  let imagePath = `${user.id}/${Date.now()}-${crypto.randomUUID()}.${safeExtension}`;
-
-  if (!imagePath.startsWith(`${user.id}/`)) {
-    return NextResponse.json({ fileName: file.name, error: "Invalid storage path", items: [] }, { status: 400 });
-  }
-
   const bytes = Buffer.from(await file.arrayBuffer());
   const imageUrl = `data:${file.type || "image/jpeg"};base64,${bytes.toString("base64")}`;
-
-  const uploadResult = await supabase.storage.from("documents").upload(imagePath, bytes, {
-    contentType: file.type || "image/jpeg",
-    upsert: false
-  });
-
-  if (uploadResult.error) {
-    imagePath = `inline:${file.name}`;
-  }
-
-  const documentResult = await supabase
-    .from("documents")
-    .insert({ image_url: imagePath, source_name: sourceName || null })
-    .select("id")
-    .single();
 
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) {
     return NextResponse.json({
       fileName: file.name,
-      documentId: documentResult.data?.id,
-      imagePath,
       error: "Missing GROQ_API_KEY on Vercel",
       items: []
     });
@@ -77,24 +52,25 @@ export async function POST(request: Request) {
     if (!items.length) {
       return NextResponse.json({
         fileName: file.name,
-        documentId: documentResult.data?.id,
-        imagePath,
         error: "Không tìm thấy chữ Trung trong ảnh này. Hãy thử ảnh rõ hơn hoặc cắt sát vùng có chữ.",
         items: []
       });
     }
 
+    const documentResult = await supabase
+      .from("documents")
+      .insert({ image_url: `no-image:${file.name}`, source_name: sourceName || null })
+      .select("id")
+      .single();
+
     return NextResponse.json({
       fileName: file.name,
       documentId: documentResult.data?.id,
-      imagePath,
       items
     });
   } catch (error) {
     return NextResponse.json({
       fileName: file.name,
-      documentId: documentResult.data?.id,
-      imagePath,
       error: error instanceof Error ? error.message : "Groq extraction failed",
       items: []
     });

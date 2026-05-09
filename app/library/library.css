@@ -16,9 +16,11 @@
 
 .library-hanzi {
   white-space: pre-line;
-  font-size: 1.7rem;
-  font-weight: 950;
+  font-family: var(--hanzi-font);
+  font-size: 1.55rem;
+  font-weight: 600;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .library-pinyin {

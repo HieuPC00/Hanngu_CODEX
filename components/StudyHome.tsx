@@ -27,6 +27,16 @@ export default function StudyHome() {
     refreshCount();
   }, []);
 
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
+
   async function refreshCount() {
     const supabase = createClient();
     const { count: itemCount, error } = await supabase.from("items").select("id", { count: "exact", head: true });
@@ -83,12 +93,37 @@ export default function StudyHome() {
   }
 
   function speak() {
-    if (!item || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
+    if (!item) return;
+    if (!("speechSynthesis" in window)) {
+      alert("Trình duyệt này không hỗ trợ đọc phát âm.");
+      return;
+    }
+
+    const text = item.hanzi.trim();
+    if (!text) return;
+
+    const synth = window.speechSynthesis;
     const utterance = new SpeechSynthesisUtterance(item.hanzi);
-    utterance.lang = "zh-CN";
+    const voice = findChineseVoice(synth.getVoices());
+
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang;
+    } else {
+      utterance.lang = "zh-CN";
+    }
+
     utterance.rate = 0.85;
-    window.speechSynthesis.speak(utterance);
+    utterance.pitch = 1;
+    utterance.onerror = (event) => {
+      if (event.error !== "interrupted" && event.error !== "canceled") {
+        alert("Điện thoại không tìm thấy giọng đọc tiếng Trung. Hãy thử mở bằng Safari/Chrome mới hoặc bật giọng tiếng Trung trong cài đặt máy.");
+      }
+    };
+
+    synth.cancel();
+    synth.resume();
+    synth.speak(utterance);
   }
 
   if (count === 0) {
@@ -127,7 +162,7 @@ export default function StudyHome() {
                 🔊
               </button>
             </header>
-            <FlashPart className="hanzi-part" hidden={!visible.hanzi}>
+            <FlashPart className={`hanzi-part ${hanziSizeClass(item.hanzi)}`} hidden={!visible.hanzi}>
               {item.hanzi}
             </FlashPart>
             <FlashPart className="pinyin-part" hidden={!visible.pinyin}>
@@ -164,19 +199,6 @@ export default function StudyHome() {
           </button>
         </>
       )}
-
-      <details className="settings-collapse">
-        <summary>Cài đặt mặc định ẩn/hiện</summary>
-        <label>
-          <input type="checkbox" checked={visible.hanzi} onChange={() => setPart("hanzi")} /> Hán
-        </label>
-        <label>
-          <input type="checkbox" checked={visible.pinyin} onChange={() => setPart("pinyin")} /> Pinyin
-        </label>
-        <label>
-          <input type="checkbox" checked={visible.meaning} onChange={() => setPart("meaning")} /> Nghĩa
-        </label>
-      </details>
     </section>
   );
 }
@@ -189,4 +211,21 @@ function labelType(type: StudyItem["type"]) {
   if (type === "dialogue") return "Hội thoại";
   if (type === "word") return "Từ vựng";
   return "Câu";
+}
+
+function hanziSizeClass(text: string) {
+  const compactLength = text.replace(/\s/g, "").length;
+  const lineCount = text.split("\n").length;
+
+  if (lineCount > 1 || compactLength > 18) return "hanzi-compact";
+  if (compactLength > 8) return "hanzi-medium";
+  return "hanzi-short";
+}
+
+function findChineseVoice(voices: SpeechSynthesisVoice[]) {
+  return (
+    voices.find((voice) => /^zh[-_]?CN/i.test(voice.lang)) ||
+    voices.find((voice) => /^zh/i.test(voice.lang)) ||
+    voices.find((voice) => /chinese|mandarin|普通话|國語|中文/i.test(voice.name))
+  );
 }

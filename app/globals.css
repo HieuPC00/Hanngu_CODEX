@@ -9,6 +9,7 @@
   --green: #16a34a;
   --soft: #fef2f2;
   --shadow: 0 16px 45px rgba(127, 29, 29, 0.08);
+  --hanzi-font: "Kaiti SC", "STKaiti", "KaiTi", "BiauKai", serif;
 }
 
 * {

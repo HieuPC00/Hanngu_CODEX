@@ -25,7 +25,7 @@ export function addLocalItems(items: ExtractedItem[]): StudyItem[] {
   const now = new Date().toISOString();
   const current = getLocalItems();
   const nextItems = items
-    .filter((item) => item.hanzi.trim())
+    .filter((item) => hasChineseText(item.hanzi) && !hasChineseInPinyin(item.pinyin))
     .map((item): StudyItem => ({
       id: `local-${crypto.randomUUID()}`,
       user_id: "local",

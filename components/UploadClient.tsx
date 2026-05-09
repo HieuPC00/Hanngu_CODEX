@@ -3,10 +3,28 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
-import { addLocalItems } from "@/lib/local-store";
-import { cleanMeaning, hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
+import { addLocalItems, getLocalItems } from "@/lib/local-store";
+import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
+
+type DuplicateMatch = {
+  id?: string;
+  source: "library" | "batch";
+  type: ItemType;
+  hanzi: string;
+  pinyin?: string | null;
+  meaning?: string | null;
+};
+
+type PreviewItem = ExtractedItem & {
+  duplicateOf?: DuplicateMatch;
+  allowDuplicate?: boolean;
+};
+
+type PreviewResult = Omit<ExtractResult, "items"> & {
+  items: PreviewItem[];
+};
 
 export default function UploadClient() {
   const router = useRouter();
@@ -14,10 +32,11 @@ export default function UploadClient() {
   const [sourceName, setSourceName] = useState("");
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState("");
-  const [results, setResults] = useState<ExtractResult[]>([]);
+  const [results, setResults] = useState<PreviewResult[]>([]);
+  const [existingItems, setExistingItems] = useState<DuplicateMatch[]>([]);
 
   const validItemCount = useMemo(
-    () => results.reduce((sum, result) => sum + result.items.filter(isValidStudyItem).length, 0),
+    () => results.reduce((sum, result) => sum + result.items.filter(isSaveableStudyItem).length, 0),
     [results]
   );
 
@@ -29,7 +48,10 @@ export default function UploadClient() {
 
   async function extract() {
     setProcessing(true);
-    const nextResults: ExtractResult[] = [];
+    const storedItems = await loadExistingItems();
+    const nextResults: PreviewResult[] = [];
+    setExistingItems(storedItems);
+
     try {
       for (let index = 0; index < files.length; index += 1) {
         const originalFile = files[index];
@@ -50,7 +72,11 @@ export default function UploadClient() {
           }
 
           const payload = (await response.json()) as ExtractResult;
-          nextResults.push(response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` });
+          const result = response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` };
+          nextResults.push({
+            ...result,
+            items: result.items.map(normalizeStudyItem)
+          });
         } catch (error) {
           nextResults.push({
             fileName: originalFile.name,
@@ -59,7 +85,7 @@ export default function UploadClient() {
           });
         }
 
-        setResults([...nextResults]);
+        setResults(markDuplicates(nextResults, storedItems));
       }
     } finally {
       setProgress("");
@@ -67,23 +93,29 @@ export default function UploadClient() {
     }
   }
 
-  function updateItem(resultIndex: number, itemIndex: number, patch: Partial<ExtractedItem>) {
+  function updateItem(resultIndex: number, itemIndex: number, patch: Partial<PreviewItem>) {
     setResults((current) =>
-      current.map((result, rIndex) =>
-        rIndex === resultIndex
-          ? {
-              ...result,
-              items: result.items.map((item, iIndex) => (iIndex === itemIndex ? { ...item, ...patch } : item))
-            }
-          : result
+      markDuplicates(
+        current.map((result, rIndex) =>
+          rIndex === resultIndex
+            ? {
+                ...result,
+                items: result.items.map((item, iIndex) => (iIndex === itemIndex ? normalizeStudyItem({ ...item, ...patch }) : item))
+              }
+            : result
+        ),
+        existingItems
       )
     );
   }
 
   function removeItem(resultIndex: number, itemIndex: number) {
     setResults((current) =>
-      current.map((result, rIndex) =>
-        rIndex === resultIndex ? { ...result, items: result.items.filter((_, iIndex) => iIndex !== itemIndex) } : result
+      markDuplicates(
+        current.map((result, rIndex) =>
+          rIndex === resultIndex ? { ...result, items: result.items.filter((_, iIndex) => iIndex !== itemIndex) } : result
+        ),
+        existingItems
       )
     );
   }
@@ -97,27 +129,27 @@ export default function UploadClient() {
 
   async function saveItems() {
     const supabase = createClient();
-    const extractedItems = results.flatMap((result) => result.items.map(normalizeStudyItem).filter(isValidStudyItem));
+    const extractedItems = results.flatMap((result) => result.items.map(normalizeStudyItem).filter(isSaveableStudyItem));
     const rows = results.flatMap((result) =>
       result.items
         .map(normalizeStudyItem)
-        .filter(isValidStudyItem)
+        .filter(isSaveableStudyItem)
         .map((item) => ({
           document_id: result.documentId || null,
           type: item.type,
           hanzi: item.hanzi,
           pinyin: item.pinyin,
           meaning: item.meaning
-        }))
+      }))
     );
     if (!rows.length) {
-      alert("Chưa có mục hợp lệ để lưu. Ô Hán tự phải có chữ Trung, pinyin không được chứa Hán tự.");
+      alert("Chưa có mục hợp lệ để lưu. Mục trùng cần bật 'Vẫn lưu mục này' nếu bạn muốn lưu.");
       return;
     }
     const { error } = await supabase.from("items").insert(rows);
     if (error) {
       addLocalItems(extractedItems);
-      alert("Supabase chưa có bảng học liệu nên app đã lưu tạm trên máy này. Bạn vẫn có thể học ngay.");
+      alert("Không lưu được lên Supabase, app đã lưu dự phòng trên máy này để không mất dữ liệu OCR.");
       router.push("/");
       router.refresh();
       return;
@@ -141,9 +173,10 @@ export default function UploadClient() {
               </header>
               {result.items.map((item, itemIndex) => {
                 const isInvalid = !isValidStudyItem(item);
+                const duplicate = item.duplicateOf;
 
                 return (
-                <div className={isInvalid ? "preview-item invalid-item" : "preview-item"} key={`${item.hanzi}-${itemIndex}`}>
+                <div className={isInvalid ? "preview-item invalid-item" : duplicate ? "preview-item duplicate-item" : "preview-item"} key={`${item.hanzi}-${itemIndex}`}>
                   <div className="row">
                     <select
                       className="select"
@@ -159,6 +192,22 @@ export default function UploadClient() {
                     </button>
                   </div>
                   {isInvalid ? <p className="validation-text">Mục này chưa hợp lệ: ô Hán tự phải có chữ Trung, pinyin không được chứa Hán tự.</p> : null}
+                  {duplicate ? (
+                    <div className="duplicate-box">
+                      <strong>Trùng với {duplicate.source === "library" ? "mục đã lưu" : "mục trong lần upload này"}:</strong>
+                      <span>{duplicate.hanzi}</span>
+                      {duplicate.pinyin ? <em>{duplicate.pinyin}</em> : null}
+                      {duplicate.meaning ? <small>{duplicate.meaning}</small> : null}
+                      <label className="duplicate-choice">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(item.allowDuplicate)}
+                          onChange={(event) => updateItem(resultIndex, itemIndex, { allowDuplicate: event.target.checked })}
+                        />
+                        Vẫn lưu mục này
+                      </label>
+                    </div>
+                  ) : null}
                   <textarea className="textarea hanzi-input" value={item.hanzi} onChange={(e) => updateItem(resultIndex, itemIndex, { hanzi: e.target.value })} />
                   <textarea className="textarea pinyin-input" value={item.pinyin} onChange={(e) => updateItem(resultIndex, itemIndex, { pinyin: e.target.value })} />
                   <textarea className="textarea" value={item.meaning} onChange={(e) => updateItem(resultIndex, itemIndex, { meaning: e.target.value })} />
@@ -205,7 +254,68 @@ export default function UploadClient() {
   );
 }
 
-function normalizeStudyItem(item: ExtractedItem): ExtractedItem {
+async function loadExistingItems(): Promise<DuplicateMatch[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase.from("items").select("id,type,hanzi,pinyin,meaning").range(0, 9999);
+  const supabaseItems: DuplicateMatch[] = error
+    ? []
+    : (data || []).map((item) => ({
+        id: item.id,
+        source: "library",
+        type: item.type,
+        hanzi: item.hanzi,
+        pinyin: item.pinyin,
+        meaning: item.meaning
+      }));
+
+  return [
+    ...getLocalItems().map((item): DuplicateMatch => ({
+      id: item.id,
+      source: "library",
+      type: item.type,
+      hanzi: item.hanzi,
+      pinyin: item.pinyin,
+      meaning: item.meaning
+    })),
+    ...supabaseItems
+  ];
+}
+
+function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[]): PreviewResult[] {
+  const seen = new Map<string, DuplicateMatch>();
+
+  existingItems.forEach((item) => {
+    const key = normalizeChineseText(item.hanzi);
+    if (key && !seen.has(key)) seen.set(key, item);
+  });
+
+  return results.map((result) => ({
+    ...result,
+    items: result.items.map((item) => {
+      const key = normalizeChineseText(item.hanzi);
+      const duplicateOf = key ? seen.get(key) : undefined;
+      const nextItem: PreviewItem = {
+        ...item,
+        duplicateOf,
+        allowDuplicate: duplicateOf ? Boolean(item.allowDuplicate) : false
+      };
+
+      if (key && isValidStudyItem(nextItem) && !seen.has(key)) {
+        seen.set(key, {
+          source: "batch",
+          type: nextItem.type,
+          hanzi: nextItem.hanzi,
+          pinyin: nextItem.pinyin,
+          meaning: nextItem.meaning
+        });
+      }
+
+      return nextItem;
+    })
+  }));
+}
+
+function normalizeStudyItem(item: ExtractedItem): PreviewItem {
   return {
     ...item,
     hanzi: item.hanzi.trim(),
@@ -216,6 +326,10 @@ function normalizeStudyItem(item: ExtractedItem): ExtractedItem {
 
 function isValidStudyItem(item: ExtractedItem) {
   return hasChineseText(item.hanzi) && !hasChineseInPinyin(item.pinyin);
+}
+
+function isSaveableStudyItem(item: PreviewItem) {
+  return isValidStudyItem(item) && (!item.duplicateOf || item.allowDuplicate);
 }
 
 async function compressImage(file: File): Promise<File> {

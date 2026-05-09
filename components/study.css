@@ -26,7 +26,7 @@
 }
 
 .flashcard {
-  padding: 18px;
+  padding: 16px;
 }
 
 .flashcard-head {
@@ -34,7 +34,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 850;
@@ -60,24 +60,39 @@
 }
 
 .hanzi-part {
-  font-size: clamp(2.5rem, 12vw, 5.5rem);
-  font-weight: 950;
-  line-height: 1.18;
+  overflow-wrap: anywhere;
+  font-family: var(--hanzi-font);
+  font-size: clamp(2rem, 8.5vw, 3.4rem);
+  font-weight: 600;
+  line-height: 1.22;
+}
+
+.hanzi-short {
+  font-size: clamp(2.45rem, 10vw, 4.1rem);
+}
+
+.hanzi-medium {
+  font-size: clamp(1.85rem, 7.6vw, 3rem);
+}
+
+.hanzi-compact {
+  font-size: clamp(1.45rem, 6vw, 2.25rem);
+  line-height: 1.32;
 }
 
 .pinyin-part {
-  margin-top: 18px;
+  margin-top: 14px;
   color: var(--muted);
-  font-size: 1.2rem;
+  font-size: 1.05rem;
   font-style: italic;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .meaning-part {
-  margin-top: 16px;
+  margin-top: 12px;
   color: #374151;
-  font-size: 1.15rem;
-  line-height: 1.6;
+  font-size: 1.03rem;
+  line-height: 1.48;
 }
 
 .toggle-grid,
@@ -92,32 +107,17 @@
 }
 
 .toggle {
-  min-height: 48px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #f3f4f6;
   color: var(--muted);
+  padding: 0 10px;
+  font-size: 0.95rem;
   font-weight: 850;
 }
 
 .toggle.active {
   background: var(--red);
   color: white;
-}
-
-.settings-collapse {
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: white;
-}
-
-.settings-collapse summary {
-  font-weight: 900;
-}
-
-.settings-collapse label {
-  display: block;
-  margin-top: 12px;
-  font-weight: 850;
 }
