@@ -46,7 +46,7 @@ export default function LibraryClient() {
           items.map((item) => (
             <article className="card library-card" key={item.id}>
               <div className="library-meta">
-                {labelType(item.type)} · Mức {item.mastery}/5 · Đã hiện {item.shown_count}×
+                {labelType(item.type)} · Đã hiện {item.shown_count}×
                 {item.id.startsWith("local-") ? " · Lưu tạm" : ""}
               </div>
               <div className="library-hanzi">{item.hanzi}</div>

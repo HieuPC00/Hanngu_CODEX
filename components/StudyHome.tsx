@@ -139,7 +139,7 @@ export default function StudyHome() {
           <article className="flashcard card">
             <header className="flashcard-head">
               <span>
-                {labelType(item.type)} · Đã hiện {item.shown_count}× · Mức {item.mastery}/5
+                {labelType(item.type)} · Đã hiện {item.shown_count}×
               </span>
               <button className="speaker" type="button" onClick={speak} aria-label="Phát âm">
                 🔊
