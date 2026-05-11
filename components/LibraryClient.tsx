@@ -360,17 +360,30 @@ function labelType(type: StudyItem["type"]) {
 
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
   const supabase = createClient();
-  const { data, error } = await supabase.from("items").select("id,type,hanzi,pinyin,meaning").range(0, 9999);
-  if (error) return [];
+  const pageSize = 1000;
+  const allItems: DuplicateMatch[] = [];
 
-  return (data || []).map((item) => ({
-    id: item.id,
-    source: "library",
-    type: item.type,
-    hanzi: item.hanzi,
-    pinyin: item.pinyin,
-    meaning: item.meaning
-  }));
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("items")
+      .select("id,type,hanzi,pinyin,meaning")
+      .range(offset, offset + pageSize - 1);
+
+    if (error) return allItems;
+
+    allItems.push(
+      ...(data || []).map((item) => ({
+        id: item.id,
+        source: "library" as const,
+        type: item.type,
+        hanzi: item.hanzi,
+        pinyin: item.pinyin,
+        meaning: item.meaning
+      }))
+    );
+
+    if (!data || data.length < pageSize) return allItems;
+  }
 }
 
 function parseManualText(text: string): { items: ManualItem[]; error?: string } {
