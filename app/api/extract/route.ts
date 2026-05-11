@@ -8,6 +8,19 @@ export const maxDuration = 60;
 
 const allowedTypes: ItemType[] = ["word", "sentence", "dialogue"];
 
+type ImageInput = {
+  imageIndex: number;
+  fileName: string;
+  mimeType: string;
+  imageBase64: string;
+};
+
+type ExtractApiResult = {
+  fileName: string;
+  error?: string;
+  items: ExtractedItem[];
+};
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -20,67 +33,98 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData();
-  const file = formData.get("image");
-  const sourceName = String(formData.get("sourceName") || "");
+  const files = formData
+    .getAll("images")
+    .filter((file): file is File => file instanceof File);
+  const singleFile = formData.get("image");
 
-  if (!(file instanceof File)) {
-    return NextResponse.json({ fileName: "unknown", error: "Missing image", items: [] }, { status: 400 });
+  if (!files.length && singleFile instanceof File) {
+    files.push(singleFile);
   }
 
-  if (file.size > 12 * 1024 * 1024) {
-    return NextResponse.json({
+  if (!files.length) {
+    return NextResponse.json({ error: "Missing image", results: [] }, { status: 400 });
+  }
+
+  if (files.length > 10) {
+    return NextResponse.json({ error: "Chỉ xử lý tối đa 10 ảnh mỗi lần.", results: [] }, { status: 400 });
+  }
+
+  const results: ExtractApiResult[] = files.map((file) => ({
+    fileName: file.name,
+    items: []
+  }));
+  const imageInputs: ImageInput[] = [];
+
+  for (let imageIndex = 0; imageIndex < files.length; imageIndex += 1) {
+    const file = files[imageIndex];
+
+    if (file.size > 12 * 1024 * 1024) {
+      results[imageIndex] = {
+        fileName: file.name,
+        error: "Ảnh quá lớn. Hãy chụp/cắt ảnh gọn hơn rồi thử lại.",
+        items: []
+      };
+      continue;
+    }
+
+    const bytes = Buffer.from(await file.arrayBuffer());
+    imageInputs.push({
+      imageIndex,
       fileName: file.name,
-      error: "Ảnh quá lớn. Hãy chụp/cắt ảnh gọn hơn rồi thử lại.",
-      items: []
+      mimeType: file.type || "image/jpeg",
+      imageBase64: bytes.toString("base64")
     });
   }
 
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const mimeType = file.type || "image/jpeg";
-  const imageBase64 = bytes.toString("base64");
+  if (!imageInputs.length) {
+    return NextResponse.json({ results });
+  }
 
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     return NextResponse.json({
-      fileName: file.name,
-      error: "Missing GEMINI_API_KEY on Vercel",
-      items: []
+      results: results.map((result, index) =>
+        imageInputs.some((image) => image.imageIndex === index)
+          ? { ...result, error: "Missing GEMINI_API_KEY on Vercel" }
+          : result
+      )
     });
   }
 
   try {
-    const items = await extractWithGemini(geminiKey, imageBase64, mimeType);
-    if (!items.length) {
-      return NextResponse.json({
-        fileName: file.name,
-        error: "Không tìm thấy chữ Trung trong ảnh này. Hãy thử ảnh rõ hơn hoặc cắt sát vùng có chữ.",
-        items: []
-      });
-    }
+    const extractedByIndex = await extractWithGemini(geminiKey, imageInputs);
 
-    const documentResult = await supabase
-      .from("documents")
-      .insert({ image_url: `no-image:${file.name}`, source_name: sourceName || null })
-      .select("id")
-      .single();
-
-    return NextResponse.json({
-      fileName: file.name,
-      documentId: documentResult.data?.id,
-      items
+    imageInputs.forEach((image) => {
+      const items = extractedByIndex.get(image.imageIndex) || [];
+      results[image.imageIndex] = {
+        fileName: image.fileName,
+        error: items.length ? undefined : "Không tìm thấy chữ Trung trong ảnh này. Hãy thử ảnh rõ hơn hoặc cắt sát vùng có chữ.",
+        items
+      };
     });
+
+    return NextResponse.json({ results });
   } catch (error) {
-    return NextResponse.json({
-      fileName: file.name,
-      error: error instanceof Error ? error.message : "Image extraction failed",
-      items: []
+    const message = error instanceof Error ? error.message : "Image extraction failed";
+
+    imageInputs.forEach((image) => {
+      results[image.imageIndex] = {
+        fileName: image.fileName,
+        error: message,
+        items: []
+      };
     });
+
+    return NextResponse.json({ results });
   }
 }
 
 const extractionPrompt = `You are an OCR system for Mandarin Chinese learning cards for Vietnamese learners.
 
-Extract ALL actual Chinese learning content from the entire image.
+You will receive 1 to 10 images. Each image is preceded by an IMAGE_INDEX marker.
+
+Extract ALL actual Chinese learning content from every image. Return one result object for every IMAGE_INDEX.
 
 Important coverage rules:
 - Scan the full image from top to bottom and left to right. Do not stop after the first clear section.
@@ -92,7 +136,7 @@ Important coverage rules:
 - Omit only pure page UI, page numbers, watermarks, ads, website/browser text, and non-learning headers/footers.
 
 Return valid JSON only:
-{"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}
+{"results":[{"imageIndex":0,"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}]}
 
 Strict field rules:
 1. "hanzi" MUST contain the original Chinese characters from the image, for example: 这台电脑五千块钱。
@@ -113,38 +157,62 @@ Strict field rules:
 const responseJsonSchema = {
   type: "object",
   properties: {
-    items: {
+    results: {
       type: "array",
       items: {
         type: "object",
         properties: {
-          type: {
-            type: "string",
-            enum: allowedTypes,
-            description: "word for vocabulary, sentence for standalone sentence/question, dialogue for multi-line conversation."
+          imageIndex: {
+            type: "integer",
+            description: "The IMAGE_INDEX number for this image."
           },
-          hanzi: {
-            type: "string",
-            description: "Original Chinese characters exactly visible in the image. No pinyin, no Vietnamese, no Latin text."
-          },
-          pinyin: {
-            type: "string",
-            description: "Romanized Mandarin pinyin with tone marks only. Generate it when the image has Chinese but no printed pinyin."
-          },
-          meaning: {
-            type: "string",
-            description: "Natural Vietnamese meaning only. No Chinese characters."
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: {
+                  type: "string",
+                  enum: allowedTypes,
+                  description: "word for vocabulary, sentence for standalone sentence/question, dialogue for multi-line conversation."
+                },
+                hanzi: {
+                  type: "string",
+                  description: "Original Chinese characters exactly visible in the image. No pinyin, no Vietnamese, no Latin text."
+                },
+                pinyin: {
+                  type: "string",
+                  description: "Romanized Mandarin pinyin with tone marks only. Generate it when the image has Chinese but no printed pinyin."
+                },
+                meaning: {
+                  type: "string",
+                  description: "Natural Vietnamese meaning only. No Chinese characters."
+                }
+              },
+              required: ["type", "hanzi", "pinyin", "meaning"]
+            }
           }
         },
-        required: ["type", "hanzi", "pinyin", "meaning"]
+        required: ["imageIndex", "items"]
       }
     }
   },
-  required: ["items"]
+  required: ["results"]
 };
 
-async function extractWithGemini(apiKey: string, imageBase64: string, mimeType: string): Promise<ExtractedItem[]> {
+async function extractWithGemini(apiKey: string, images: ImageInput[]): Promise<Map<number, ExtractedItem[]>> {
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const imageParts = images.flatMap((image) => [
+    {
+      text: `IMAGE_INDEX: ${image.imageIndex}\nFILE_NAME: ${image.fileName}`
+    },
+    {
+      inline_data: {
+        mime_type: image.mimeType,
+        data: image.imageBase64
+      }
+    }
+  ]);
 
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
@@ -157,18 +225,13 @@ async function extractWithGemini(apiKey: string, imageBase64: string, mimeType: 
         {
           parts: [
             { text: extractionPrompt },
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: imageBase64
-              }
-            }
+            ...imageParts
           ]
         }
       ],
       generationConfig: {
         temperature: 0.05,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 16384,
         responseMimeType: "application/json",
         responseJsonSchema
       }
@@ -183,11 +246,18 @@ async function extractWithGemini(apiKey: string, imageBase64: string, mimeType: 
   const payload = await response.json();
   const content = payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || "";
   const parsed = JSON.parse(content || "{}");
-  const rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }> = Array.isArray(parsed.items)
-    ? parsed.items
-    : [];
+  const rawResults: Array<{
+    imageIndex?: number;
+    items?: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }>;
+  }> = Array.isArray(parsed.results) ? parsed.results : [];
+  const byIndex = new Map<number, ExtractedItem[]>();
 
-  return normalizeExtractedItems(rawItems);
+  rawResults.forEach((result) => {
+    if (typeof result.imageIndex !== "number") return;
+    byIndex.set(result.imageIndex, normalizeExtractedItems(Array.isArray(result.items) ? result.items : []));
+  });
+
+  return byIndex;
 }
 
 function normalizeExtractedItems(rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }>): ExtractedItem[] {

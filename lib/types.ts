@@ -24,8 +24,6 @@ export type ExtractedItem = {
 
 export type ExtractResult = {
   fileName: string;
-  documentId?: string;
-  imagePath?: string;
   error?: string;
   items: ExtractedItem[];
 };

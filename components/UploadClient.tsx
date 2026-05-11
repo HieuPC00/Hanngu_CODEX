@@ -28,7 +28,6 @@ type PreviewResult = Omit<ExtractResult, "items"> & {
 export default function UploadClient() {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
-  const [sourceName, setSourceName] = useState("");
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<PreviewResult[]>([]);
@@ -48,33 +47,33 @@ export default function UploadClient() {
   async function extract() {
     setProcessing(true);
     const storedItems = await loadExistingItems();
-    const nextResults: PreviewResult[] = [];
     setExistingItems(storedItems);
 
     try {
+      const preparedImages: File[] = [];
+
       for (let index = 0; index < files.length; index += 1) {
-        const originalFile = files[index];
-        setProgress(`Đang xử lý ${index + 1}/${files.length}...`);
-
-        try {
-          const image = await prepareOcrImage(originalFile);
-          const result = await extractImage(image, sourceName);
-          nextResults.push({
-            fileName: originalFile.name,
-            documentId: result.documentId,
-            error: result.error,
-            items: result.items.map(normalizeStudyItem)
-          });
-        } catch (error) {
-          nextResults.push({
-            fileName: originalFile.name,
-            error: error instanceof Error ? error.message : "Không xử lý được ảnh này",
-            items: []
-          });
-        }
-
-        setResults(markDuplicates(nextResults, storedItems));
+        setProgress(`Đang tối ưu ảnh ${index + 1}/${files.length}...`);
+        preparedImages.push(await prepareOcrImage(files[index]));
       }
+
+      setProgress(`Đang trích xuất ${files.length} ảnh bằng 1 lần AI...`);
+      const extractedResults = await extractImages(preparedImages);
+      const nextResults = extractedResults.map((result) => ({
+        fileName: result.fileName,
+        error: result.error,
+        items: result.items.map(normalizeStudyItem)
+      }));
+      setResults(markDuplicates(nextResults, storedItems));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không xử lý được ảnh";
+      setResults(
+        files.map((file) => ({
+          fileName: file.name,
+          error: message,
+          items: []
+        }))
+      );
     } finally {
       setProgress("");
       setProcessing(false);
@@ -122,7 +121,7 @@ export default function UploadClient() {
         .map(normalizeStudyItem)
         .filter(isSaveableStudyItem)
         .map((item) => ({
-          document_id: result.documentId || null,
+          document_id: null,
           type: item.type,
           hanzi: item.hanzi,
           pinyin: item.pinyin,
@@ -222,13 +221,8 @@ export default function UploadClient() {
       <label className="drop-zone">
         <span className="camera-icon">📷</span>
         <strong>{files.length ? `Đã chọn ${files.length} ảnh` : "Bấm để chọn ảnh"}</strong>
-        <span className="muted">Tối đa 10 ảnh/lần</span>
+        <span className="muted">Tối đa 10 ảnh/lần, hệ thống chỉ gọi AI 1 lần cho cả lô</span>
         <input type="file" accept="image/*" multiple onChange={chooseFiles} />
-      </label>
-
-      <label className="source-field">
-        <span>Nguồn</span>
-        <input className="field" value={sourceName} onChange={(event) => setSourceName(event.target.value)} placeholder="Bài 5 sách HSK 2" />
       </label>
 
       <button className="button full-width" type="button" onClick={extract} disabled={!files.length || processing}>
@@ -238,10 +232,11 @@ export default function UploadClient() {
   );
 }
 
-async function extractImage(image: File, sourceName: string): Promise<ExtractResult> {
+async function extractImages(images: File[]): Promise<ExtractResult[]> {
   const formData = new FormData();
-  formData.append("image", image, image.name);
-  formData.append("sourceName", sourceName);
+  images.forEach((image) => {
+    formData.append("images", image, image.name);
+  });
 
   const response = await fetch("/api/extract", { method: "POST", body: formData });
   const contentType = response.headers.get("content-type") || "";
@@ -251,8 +246,17 @@ async function extractImage(image: File, sourceName: string): Promise<ExtractRes
     throw new Error(text.slice(0, 180) || `HTTP ${response.status}`);
   }
 
-  const payload = (await response.json()) as ExtractResult;
-  return response.ok ? payload : { ...payload, error: payload.error || `HTTP ${response.status}` };
+  const payload = (await response.json()) as { results?: ExtractResult[]; error?: string };
+  if (!response.ok) {
+    const message = payload.error || `HTTP ${response.status}`;
+    return images.map((image) => ({ fileName: image.name, error: message, items: [] }));
+  }
+
+  if (!Array.isArray(payload.results)) {
+    return images.map((image) => ({ fileName: image.name, error: "API trả dữ liệu không đúng định dạng", items: [] }));
+  }
+
+  return payload.results;
 }
 
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
