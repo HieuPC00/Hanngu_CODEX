@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
-import { getLocalItems, pickLocalItem } from "@/lib/local-store";
 import type { StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -46,11 +45,11 @@ export default function StudyHome() {
     const { count: itemCount, error } = await supabase.from("items").select("id", { count: "exact", head: true });
 
     if (error) {
-      setCount(getLocalItems().length);
+      setCount(0);
       return;
     }
 
-    setCount((itemCount || 0) + getLocalItems().length);
+    setCount(itemCount || 0);
   }
 
   function setPart(part: keyof VisibleParts) {
@@ -68,11 +67,11 @@ export default function StudyHome() {
     });
     setLoading(false);
     if (error) {
-      setItem(pickLocalItem());
+      alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
       return;
     }
     const next = Array.isArray(data) ? data[0] : data;
-    setItem(next || pickLocalItem());
+    setItem(next || null);
   }
 
   function speak() {

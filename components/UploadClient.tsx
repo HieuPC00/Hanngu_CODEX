@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
-import { addLocalItems, getLocalItems } from "@/lib/local-store";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
@@ -118,7 +117,6 @@ export default function UploadClient() {
 
   async function saveItems() {
     const supabase = createClient();
-    const extractedItems = results.flatMap((result) => result.items.map(normalizeStudyItem).filter(isSaveableStudyItem));
     const rows = results.flatMap((result) =>
       result.items
         .map(normalizeStudyItem)
@@ -137,10 +135,7 @@ export default function UploadClient() {
     }
     const { error } = await supabase.from("items").insert(rows);
     if (error) {
-      addLocalItems(extractedItems);
-      alert("Không lưu được lên Supabase, app đã lưu dự phòng trên máy này để không mất dữ liệu OCR.");
-      router.push("/");
-      router.refresh();
+      alert(`Không lưu được lên Supabase: ${error.message}`);
       return;
     }
     router.push("/");
@@ -263,28 +258,16 @@ async function extractImage(image: File, sourceName: string): Promise<ExtractRes
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
   const supabase = createClient();
   const { data, error } = await supabase.from("items").select("id,type,hanzi,pinyin,meaning").range(0, 9999);
-  const supabaseItems: DuplicateMatch[] = error
-    ? []
-    : (data || []).map((item) => ({
-        id: item.id,
-        source: "library",
-        type: item.type,
-        hanzi: item.hanzi,
-        pinyin: item.pinyin,
-        meaning: item.meaning
-      }));
+  if (error) return [];
 
-  return [
-    ...getLocalItems().map((item): DuplicateMatch => ({
-      id: item.id,
-      source: "library",
-      type: item.type,
-      hanzi: item.hanzi,
-      pinyin: item.pinyin,
-      meaning: item.meaning
-    })),
-    ...supabaseItems
-  ];
+  return (data || []).map((item) => ({
+    id: item.id,
+    source: "library",
+    type: item.type,
+    hanzi: item.hanzi,
+    pinyin: item.pinyin,
+    meaning: item.meaning
+  }));
 }
 
 function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[]): PreviewResult[] {
