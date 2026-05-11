@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
+import { inferItemType } from "@/lib/item-type";
 import { hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractedItem, ItemType, StudyItem } from "@/lib/types";
 
@@ -61,6 +62,7 @@ export default function LibraryClient() {
   const [manualError, setManualError] = useState("");
   const [manualExistingItems, setManualExistingItems] = useState<DuplicateMatch[]>([]);
   const [manualSaving, setManualSaving] = useState(false);
+  const [typeSavingIds, setTypeSavingIds] = useState<string[]>([]);
 
   const manualSaveableCount = useMemo(() => manualItems.filter(isSaveableManualItem).length, [manualItems]);
 
@@ -195,6 +197,27 @@ export default function LibraryClient() {
     }
   }
 
+  async function updateLibraryItemType(item: StudyItem, nextType: ItemType) {
+    if (item.type === nextType || typeSavingIds.includes(item.id)) return;
+
+    const previousType = item.type;
+    setTypeSavingIds((current) => [...current, item.id]);
+    setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, type: nextType } : currentItem)));
+    setStats((current) => adjustStatsForTypeChange(current, previousType, nextType));
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("items").update({ type: nextType }).eq("id", item.id);
+      if (error) throw error;
+    } catch (error) {
+      setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, type: previousType } : currentItem)));
+      setStats((current) => adjustStatsForTypeChange(current, nextType, previousType));
+      alert(error instanceof Error ? `Không đổi được loại mục: ${error.message}` : "Không đổi được loại mục.");
+    } finally {
+      setTypeSavingIds((current) => current.filter((id) => id !== item.id));
+    }
+  }
+
   return (
     <section>
       <div className="library-head">
@@ -308,8 +331,9 @@ export default function LibraryClient() {
         {items.length ? (
           items.map((item) => (
             <article className="card library-card" key={item.id}>
-              <div className="library-meta">
-                {labelType(item.type)} · Đã hiện {item.shown_count}×
+              <div className="library-card-head">
+                <div className="library-meta">Đã hiện {item.shown_count}×</div>
+                <TypeTabs value={item.type} disabled={typeSavingIds.includes(item.id)} onChange={(nextType) => updateLibraryItemType(item, nextType)} />
               </div>
               <div className="library-hanzi">{item.hanzi}</div>
               <div className="library-pinyin">{item.pinyin}</div>
@@ -356,6 +380,40 @@ function labelType(type: StudyItem["type"]) {
   if (type === "dialogue") return "Hội thoại";
   if (type === "word") return "Từ vựng";
   return "Câu";
+}
+
+function TypeTabs({ value, disabled, onChange }: { value: ItemType; disabled?: boolean; onChange: (type: ItemType) => void }) {
+  const options: Array<{ value: ItemType; label: string }> = [
+    { value: "sentence", label: "Câu" },
+    { value: "word", label: "Từ" },
+    { value: "dialogue", label: "Hội thoại" }
+  ];
+
+  return (
+    <div className="type-tabs" aria-label="Loại mục">
+      {options.map((option) => (
+        <button
+          className={value === option.value ? "type-tab active" : "type-tab"}
+          type="button"
+          key={option.value}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function adjustStatsForTypeChange(stats: LibraryStats, from: ItemType, to: ItemType): LibraryStats {
+  if (from === to) return stats;
+
+  return {
+    ...stats,
+    [from]: Math.max(0, stats[from] - 1),
+    [to]: stats[to] + 1
+  };
 }
 
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
@@ -420,11 +478,12 @@ function parseManualBlock(block: string): ManualItem | null {
   const pinyinLines = remainingLines.slice(0, pinyinLineCount);
   const meaningLines = remainingLines.slice(pinyinLineCount);
   const hanzi = hanziLines.join("\n");
+  const pinyin = pinyinLines.join("\n");
 
   return {
-    type: detectItemType(hanzi),
+    type: detectItemType(hanzi, pinyin),
     hanzi,
-    pinyin: pinyinLines.join("\n"),
+    pinyin,
     meaning: meaningLines.join("\n"),
     validationErrors: []
   };
@@ -444,7 +503,7 @@ function countLeadingChineseLines(lines: string[]) {
 function normalizeManualItem(item: ManualItem): ManualItem {
   const next: ManualItem = {
     ...item,
-    type: item.type || detectItemType(item.hanzi),
+    type: item.type || detectItemType(item.hanzi, item.pinyin),
     hanzi: item.hanzi.trim(),
     pinyin: item.pinyin.trim(),
     meaning: item.meaning.trim(),
@@ -504,17 +563,6 @@ function isSaveableManualItem(item: ManualItem) {
   return !item.validationErrors.length && (!item.duplicateOf || item.allowDuplicate);
 }
 
-function detectItemType(hanzi: string): ItemType {
-  const lines = hanzi
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length > 1 || /(^|\n)\s*[A-Za-z]\s*[:：]/.test(hanzi)) return "dialogue";
-
-  const compactLength = hanzi.replace(/\s/g, "").length;
-  const hasSentencePunctuation = /[。！？!?，,；;]/.test(hanzi);
-
-  if (!hasSentencePunctuation && compactLength <= 4) return "word";
-  return "sentence";
+function detectItemType(hanzi: string, pinyin?: string | null): ItemType {
+  return inferItemType(hanzi, "sentence", pinyin);
 }

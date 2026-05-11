@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
+import { inferItemType } from "@/lib/item-type";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
@@ -62,7 +63,7 @@ export default function UploadClient() {
       const nextResults = extractedResults.map((result) => ({
         fileName: result.fileName,
         error: result.error,
-        items: result.items.map(normalizeStudyItem)
+        items: result.items.map((item) => normalizeStudyItem(item, { inferType: true }))
       }));
       setResults(markDuplicates(nextResults, storedItems));
     } catch (error) {
@@ -118,7 +119,7 @@ export default function UploadClient() {
     const supabase = createClient();
     const rows = results.flatMap((result) =>
       result.items
-        .map(normalizeStudyItem)
+        .map((item) => normalizeStudyItem(item))
         .filter(isSaveableStudyItem)
         .map((item) => ({
           document_id: null,
@@ -321,10 +322,13 @@ function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[
   }));
 }
 
-function normalizeStudyItem(item: ExtractedItem): PreviewItem {
+function normalizeStudyItem(item: ExtractedItem, options?: { inferType?: boolean }): PreviewItem {
+  const hanzi = item.hanzi.trim();
+
   return {
     ...item,
-    hanzi: item.hanzi.trim(),
+    type: options?.inferType ? inferItemType(hanzi, item.type, item.pinyin) : item.type,
+    hanzi,
     pinyin: hasChineseInPinyin(item.pinyin) ? "" : item.pinyin.trim(),
     meaning: cleanMeaning(item.meaning)
   };

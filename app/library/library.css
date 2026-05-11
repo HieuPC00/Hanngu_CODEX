@@ -46,11 +46,43 @@
   padding: 16px;
 }
 
+.library-card-head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .library-meta {
-  margin-bottom: 10px;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 850;
+}
+
+.type-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.type-tab {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--muted);
+  font-weight: 850;
+  font-size: 0.9rem;
+}
+
+.type-tab.active {
+  border-color: rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--red);
+}
+
+.type-tab:disabled {
+  opacity: 0.65;
 }
 
 .library-hanzi {
@@ -238,5 +270,14 @@
 
   .manual-actions {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .library-card-head {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .type-tabs {
+    width: 280px;
   }
 }
