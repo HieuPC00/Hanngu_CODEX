@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (document.cookie.includes(`${ACCESS_COOKIE_NAME}=${SHARED_ACCESS_CODE}`)) router.replace("/");
+    if (getCookie(ACCESS_COOKIE_NAME) === SHARED_ACCESS_CODE) router.replace("/");
   }, [router]);
 
   async function signInWithCode(event: React.FormEvent<HTMLFormElement>) {
@@ -59,4 +59,13 @@ export default function LoginPage() {
       </section>
     </main>
   );
+}
+
+function getCookie(name: string) {
+  const match = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
