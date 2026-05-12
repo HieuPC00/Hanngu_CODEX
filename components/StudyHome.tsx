@@ -94,6 +94,7 @@ export default function StudyHome() {
     const result = compareChineseAnswer(item.hanzi, answer);
 
     if (result.correct) {
+      setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
       setCheckState("correct");
       return;
     }
