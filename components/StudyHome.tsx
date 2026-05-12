@@ -12,21 +12,24 @@ type VisibleParts = {
   meaning: boolean;
 };
 
-const defaultVisible: VisibleParts = { hanzi: true, pinyin: false, meaning: false };
+type CheckState = "idle" | "correct" | "wrong";
+
+const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
 
 export default function StudyHome() {
   const [count, setCount] = useState<number | null>(null);
   const [item, setItem] = useState<StudyItem | null>(null);
   const [visible, setVisible] = useState<VisibleParts>(defaultVisible);
   const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [checkState, setCheckState] = useState<CheckState>("idle");
 
   useEffect(() => {
     if (window.location.hash.includes("error=")) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
 
-    const saved = localStorage.getItem("hanngu-visible-parts");
-    if (saved) setVisible(JSON.parse(saved));
+    localStorage.removeItem("hanngu-visible-parts");
     refreshCount();
   }, []);
 
@@ -55,7 +58,6 @@ export default function StudyHome() {
   function setPart(part: keyof VisibleParts) {
     const next = { ...visible, [part]: !visible[part] };
     setVisible(next);
-    localStorage.setItem("hanngu-visible-parts", JSON.stringify(next));
   }
 
   async function pickNext() {
@@ -72,6 +74,32 @@ export default function StudyHome() {
     }
     const next = Array.isArray(data) ? data[0] : data;
     setItem(next || null);
+    resetPractice();
+  }
+
+  function resetPractice() {
+    setVisible(defaultVisible);
+    setAnswer("");
+    setCheckState("idle");
+  }
+
+  function updateAnswer(nextAnswer: string) {
+    setAnswer(nextAnswer);
+    if (checkState !== "idle") setCheckState("idle");
+  }
+
+  function checkAnswer() {
+    if (!item) return;
+
+    const result = compareChineseAnswer(item.hanzi, answer);
+
+    if (result.correct) {
+      setCheckState("correct");
+      return;
+    }
+
+    setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
+    setCheckState("wrong");
   }
 
   function speak() {
@@ -123,6 +151,9 @@ export default function StudyHome() {
     );
   }
 
+  const comparison = item ? compareChineseAnswer(item.hanzi, answer) : null;
+  const shouldHighlight = checkState === "wrong" && comparison;
+
   return (
     <section className="study-stack">
       {!item ? (
@@ -145,7 +176,7 @@ export default function StudyHome() {
               </button>
             </header>
             <FlashPart className={`hanzi-part ${hanziSizeClass(item.hanzi)}`} hidden={!visible.hanzi}>
-              {item.hanzi}
+              {shouldHighlight ? renderHighlightedText(item.hanzi, comparison.sampleWrongIndices) : item.hanzi}
             </FlashPart>
             <FlashPart className="pinyin-part" hidden={!visible.pinyin}>
               {item.pinyin}
@@ -166,6 +197,38 @@ export default function StudyHome() {
               {visible.meaning ? "Ẩn Nghĩa" : "Hiện Nghĩa"}
             </button>
           </div>
+
+          <section className="practice-card card">
+            <label className="practice-label" htmlFor="hanzi-answer">
+              Nhập Hán tự
+            </label>
+            <textarea
+              id="hanzi-answer"
+              className={`textarea answer-input ${checkState === "correct" ? "correct" : ""} ${checkState === "wrong" ? "wrong" : ""}`}
+              value={answer}
+              onChange={(event) => updateAnswer(event.target.value)}
+              placeholder="Gõ Hán tự theo nghĩa tiếng Việt..."
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+
+            {checkState !== "idle" ? (
+              <div className={`check-result ${checkState}`}>
+                {checkState === "correct" ? "Đúng" : answer.trim() ? "Chưa đúng. Phần đỏ là phần cần sửa." : "Bạn chưa nhập Hán tự."}
+              </div>
+            ) : null}
+
+            {checkState === "wrong" && answer.trim() ? (
+              <div className="answer-review" aria-label="Phần nhập đã kiểm tra">
+                {comparison ? renderHighlightedText(answer, comparison.inputWrongIndices) : answer}
+              </div>
+            ) : null}
+
+            <button className="button full-width" type="button" onClick={checkAnswer}>
+              Kiểm tra
+            </button>
+          </section>
 
           <button className="ghost-button full-width" type="button" onClick={pickNext}>
             Tạo câu khác
@@ -201,4 +264,81 @@ function findChineseVoice(voices: SpeechSynthesisVoice[]) {
     voices.find((voice) => /^zh/i.test(voice.lang)) ||
     voices.find((voice) => /chinese|mandarin|普通话|國語|中文/i.test(voice.name))
   );
+}
+
+type ChineseUnit = {
+  char: string;
+  textIndex: number;
+};
+
+function compareChineseAnswer(sampleText: string, inputText: string) {
+  const sampleUnits = collectChineseUnits(sampleText);
+  const inputUnits = collectChineseUnits(inputText);
+  const matched = findMatchedChineseUnits(sampleUnits, inputUnits);
+  const matchedSample = new Set(matched.map((pair) => pair.sampleIndex));
+  const matchedInput = new Set(matched.map((pair) => pair.inputIndex));
+  const sampleWrongIndices = new Set<number>();
+  const inputWrongIndices = new Set<number>();
+
+  sampleUnits.forEach((unit, index) => {
+    if (!matchedSample.has(index)) sampleWrongIndices.add(unit.textIndex);
+  });
+  inputUnits.forEach((unit, index) => {
+    if (!matchedInput.has(index)) inputWrongIndices.add(unit.textIndex);
+  });
+
+  return {
+    correct: sampleUnits.length > 0 && sampleUnits.length === inputUnits.length && sampleWrongIndices.size === 0 && inputWrongIndices.size === 0,
+    sampleWrongIndices,
+    inputWrongIndices
+  };
+}
+
+function collectChineseUnits(text: string): ChineseUnit[] {
+  return Array.from(text).flatMap((char, index) => (isChineseChar(char) ? [{ char, textIndex: index }] : []));
+}
+
+function isChineseChar(char: string) {
+  return /[\u3400-\u9fff\uf900-\ufaff]/.test(char);
+}
+
+function findMatchedChineseUnits(sampleUnits: ChineseUnit[], inputUnits: ChineseUnit[]) {
+  const rows = sampleUnits.length;
+  const cols = inputUnits.length;
+  const table = Array.from({ length: rows + 1 }, () => Array<number>(cols + 1).fill(0));
+
+  for (let row = rows - 1; row >= 0; row -= 1) {
+    for (let col = cols - 1; col >= 0; col -= 1) {
+      table[row][col] =
+        sampleUnits[row].char === inputUnits[col].char
+          ? table[row + 1][col + 1] + 1
+          : Math.max(table[row + 1][col], table[row][col + 1]);
+    }
+  }
+
+  const matched: Array<{ sampleIndex: number; inputIndex: number }> = [];
+  let row = 0;
+  let col = 0;
+
+  while (row < rows && col < cols) {
+    if (sampleUnits[row].char === inputUnits[col].char) {
+      matched.push({ sampleIndex: row, inputIndex: col });
+      row += 1;
+      col += 1;
+    } else if (table[row + 1][col] >= table[row][col + 1]) {
+      row += 1;
+    } else {
+      col += 1;
+    }
+  }
+
+  return matched;
+}
+
+function renderHighlightedText(text: string, wrongIndices: Set<number>) {
+  return Array.from(text).map((char, index) => (
+    <span className={wrongIndices.has(index) ? "wrong-char" : undefined} key={`${char}-${index}`}>
+      {char}
+    </span>
+  ));
 }
