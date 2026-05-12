@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import { inferItemType } from "@/lib/item-type";
+import { SHARED_OWNER_ID } from "@/lib/shared-access";
 import { hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractedItem, ItemType, StudyItem } from "@/lib/types";
 
@@ -98,6 +99,7 @@ export default function LibraryClient() {
         supabase
           .from("items")
           .select("id,user_id,document_id,type,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at")
+          .eq("user_id", SHARED_OWNER_ID)
           .order("created_at", { ascending: false })
           .range(offset, offset + pageSize - 1),
         loadStats()
@@ -119,10 +121,10 @@ export default function LibraryClient() {
   async function loadStats(): Promise<LibraryStats> {
     const supabase = createClient();
     const [total, sentence, word, dialogue] = await Promise.all([
-      supabase.from("items").select("id", { count: "exact", head: true }),
-      supabase.from("items").select("id", { count: "exact", head: true }).eq("type", "sentence"),
-      supabase.from("items").select("id", { count: "exact", head: true }).eq("type", "word"),
-      supabase.from("items").select("id", { count: "exact", head: true }).eq("type", "dialogue")
+      supabase.from("items").select("id", { count: "exact", head: true }).eq("user_id", SHARED_OWNER_ID),
+      supabase.from("items").select("id", { count: "exact", head: true }).eq("user_id", SHARED_OWNER_ID).eq("type", "sentence"),
+      supabase.from("items").select("id", { count: "exact", head: true }).eq("user_id", SHARED_OWNER_ID).eq("type", "word"),
+      supabase.from("items").select("id", { count: "exact", head: true }).eq("user_id", SHARED_OWNER_ID).eq("type", "dialogue")
     ]);
 
     const error = total.error || sentence.error || word.error || dialogue.error;
@@ -179,6 +181,7 @@ export default function LibraryClient() {
 
   async function saveManualItems() {
     const rows = manualItems.filter(isSaveableManualItem).map((item) => ({
+      user_id: SHARED_OWNER_ID,
       document_id: null,
       type: item.type,
       hanzi: item.hanzi,
@@ -218,7 +221,7 @@ export default function LibraryClient() {
 
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("items").update({ type: nextType }).eq("id", item.id);
+      const { error } = await supabase.from("items").update({ type: nextType }).eq("id", item.id).eq("user_id", SHARED_OWNER_ID);
       if (error) throw error;
     } catch (error) {
       setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, type: previousType } : currentItem)));
@@ -454,6 +457,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
     const { data, error } = await supabase
       .from("items")
       .select("id,type,hanzi,pinyin,meaning")
+      .eq("user_id", SHARED_OWNER_ID)
       .range(offset, offset + pageSize - 1);
 
     if (error) return allItems;

@@ -72,6 +72,9 @@ drop policy if exists "items select own" on public.items;
 drop policy if exists "items insert own" on public.items;
 drop policy if exists "items update own" on public.items;
 drop policy if exists "items delete own" on public.items;
+drop policy if exists "items shared code select" on public.items;
+drop policy if exists "items shared code insert" on public.items;
+drop policy if exists "items shared code update" on public.items;
 drop policy if exists "study logs select own" on public.study_logs;
 drop policy if exists "study logs insert own" on public.study_logs;
 
@@ -84,6 +87,19 @@ create policy "items select own" on public.items for select to authenticated usi
 create policy "items insert own" on public.items for insert to authenticated with check (auth.uid() = user_id);
 create policy "items update own" on public.items for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "items delete own" on public.items for delete to authenticated using (auth.uid() = user_id);
+
+create policy "items shared code select" on public.items for select to anon, authenticated
+using (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+
+create policy "items shared code insert" on public.items for insert to anon, authenticated
+with check (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+
+create policy "items shared code update" on public.items for update to anon, authenticated
+using (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid)
+with check (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.items to anon, authenticated;
 
 create policy "study logs select own" on public.study_logs for select to authenticated using (auth.uid() = user_id);
 create policy "study logs insert own" on public.study_logs for insert to authenticated with check (

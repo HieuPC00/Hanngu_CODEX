@@ -3,53 +3,34 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
+import { ACCESS_COOKIE_NAME, isValidAccessCode, SHARED_ACCESS_CODE } from "@/lib/shared-access";
 import "./login.css";
-
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://hanngu-codex.vercel.app";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    const currentParams = new URLSearchParams(window.location.search);
-    const code = currentParams.get("code");
+    if (document.cookie.includes(`${ACCESS_COOKIE_NAME}=${SHARED_ACCESS_CODE}`)) router.replace("/");
+  }, [router]);
 
-    if (code) {
-      window.location.replace(`/auth/callback?${currentParams.toString()}`);
+  async function signInWithCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+
+    if (!isValidAccessCode(code.trim())) {
+      setError("Mã đăng nhập không đúng.");
       return;
     }
 
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) router.replace("/");
-    });
-  }, [router]);
-
-  async function signInWithEmail(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setSent(false);
+    const secure = window.location.protocol === "https:" ? "; secure" : "";
+    document.cookie = `${ACCESS_COOKIE_NAME}=${encodeURIComponent(code.trim())}; path=/; max-age=31536000; samesite=lax${secure}`;
 
     const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: `${appUrl}/auth/callback`
-      }
-    });
-
-    if (signInError) {
-      setError(signInError.message);
-    } else {
-      setSent(true);
-    }
-
-    setLoading(false);
+    await supabase.auth.signOut();
+    router.replace("/");
+    router.refresh();
   }
 
   return (
@@ -57,24 +38,23 @@ export default function LoginPage() {
       <section className="login-card">
         <div className="login-logo">汉</div>
         <h1>Hán Ngữ</h1>
-        <p>Nhập email, hệ thống sẽ gửi link đăng nhập. Mở link đó là vào app, không cần mật khẩu.</p>
-        <form className="email-login-form" onSubmit={signInWithEmail}>
-          <label htmlFor="email">Email</label>
+        <p>Nhập mã học chung để vào app. Mã này mở cùng một kho dữ liệu đã lưu.</p>
+        <form className="email-login-form" onSubmit={signInWithCode}>
+          <label htmlFor="access-code">Mã học</label>
           <input
-            id="email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="email của bạn"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            id="access-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="nhập mã"
+            value={code}
+            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             required
           />
-          <button className="email-button" type="submit" disabled={loading}>
-            {loading ? "Đang gửi..." : "Gửi link đăng nhập"}
+          <button className="email-button" type="submit">
+            Đăng nhập
           </button>
         </form>
-        {sent ? <p className="login-success">Đã gửi link. Hãy mở email và bấm vào link đăng nhập.</p> : null}
         {error ? <p className="login-error">{error}</p> : null}
       </section>
     </main>

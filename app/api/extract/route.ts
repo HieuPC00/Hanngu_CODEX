@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase-server";
+import { ACCESS_COOKIE_NAME, isValidAccessCode, readCookieValue } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
 import type { ExtractedItem, ItemType } from "@/lib/types";
 
@@ -22,13 +22,9 @@ type ExtractApiResult = {
 };
 
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error: userError
-  } = await supabase.auth.getUser();
+  const accessCode = readCookieValue(request.headers.get("cookie"), ACCESS_COOKIE_NAME);
 
-  if (userError || !user) {
+  if (!isValidAccessCode(accessCode)) {
     return NextResponse.json({ fileName: "unknown", error: "Unauthorized", items: [] }, { status: 401 });
   }
 

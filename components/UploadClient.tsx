@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { inferItemType } from "@/lib/item-type";
+import { SHARED_OWNER_ID } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
@@ -122,6 +123,7 @@ export default function UploadClient() {
         .map((item) => normalizeStudyItem(item))
         .filter(isSaveableStudyItem)
         .map((item) => ({
+          user_id: SHARED_OWNER_ID,
           document_id: null,
           type: item.type,
           hanzi: item.hanzi,
@@ -269,6 +271,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
     const { data, error } = await supabase
       .from("items")
       .select("id,type,hanzi,pinyin,meaning")
+      .eq("user_id", SHARED_OWNER_ID)
       .range(offset, offset + pageSize - 1);
 
     if (error) return allItems;

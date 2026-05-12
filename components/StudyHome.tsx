@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
+import { SHARED_OWNER_ID } from "@/lib/shared-access";
 import type { StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -15,6 +16,7 @@ type VisibleParts = {
 type CheckState = "idle" | "correct" | "wrong";
 
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
+const itemColumns = "id,user_id,document_id,type,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 
 export default function StudyHome() {
   const [count, setCount] = useState<number | null>(null);
@@ -45,7 +47,10 @@ export default function StudyHome() {
 
   async function refreshCount() {
     const supabase = createClient();
-    const { count: itemCount, error } = await supabase.from("items").select("id", { count: "exact", head: true });
+    const { count: itemCount, error } = await supabase
+      .from("items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", SHARED_OWNER_ID);
 
     if (error) {
       setCount(0);
@@ -63,18 +68,55 @@ export default function StudyHome() {
   async function pickNext() {
     setLoading(true);
     const supabase = createClient();
-    const { data, error } = await supabase.rpc("pick_next_item", {
-      p_document_id: null,
-      p_max_mastery: 5
-    });
+
+    const { data, error } = await supabase
+      .from("items")
+      .select(itemColumns)
+      .eq("user_id", SHARED_OWNER_ID)
+      .lte("mastery", 5)
+      .order("shown_count", { ascending: true })
+      .order("last_shown_at", { ascending: true, nullsFirst: true })
+      .limit(1);
+
     setLoading(false);
     if (error) {
       alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
       return;
     }
-    const next = Array.isArray(data) ? data[0] : data;
-    setItem(next || null);
+
+    const next = Array.isArray(data) ? (data[0] as StudyItem | undefined) : undefined;
+    if (!next) {
+      setItem(null);
+      resetPractice();
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const fallbackItem: StudyItem = {
+      ...next,
+      shown_count: next.shown_count + 1,
+      last_shown_at: now
+    };
+    const { data: updated, error: updateError } = await supabase
+      .from("items")
+      .update({
+        shown_count: next.shown_count + 1,
+        last_shown_at: now
+      })
+      .eq("id", next.id)
+      .eq("user_id", SHARED_OWNER_ID)
+      .select(itemColumns)
+      .single();
+
+    if (updateError) {
+      setItem(fallbackItem);
+      resetPractice();
+      return;
+    }
+
+    setItem((updated as StudyItem) || fallbackItem);
     resetPractice();
+    refreshCount();
   }
 
   function resetPractice() {

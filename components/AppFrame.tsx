@@ -1,17 +1,16 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase-server";
+import { ACCESS_COOKIE_NAME, isValidAccessCode } from "@/lib/shared-access";
 import ClearDeprecatedLocalItems from "@/components/ClearDeprecatedLocalItems";
 import SignOutButton from "@/components/SignOutButton";
 import BottomNav from "@/components/BottomNav";
 
 export default async function AppFrame({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const cookieStore = await cookies();
+  const accessCode = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
 
-  if (!user) redirect("/login");
+  if (!isValidAccessCode(accessCode)) redirect("/login");
 
   return (
     <>
