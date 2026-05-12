@@ -65,6 +65,17 @@ export default function LibraryClient() {
   const [typeSavingIds, setTypeSavingIds] = useState<string[]>([]);
 
   const manualSaveableCount = useMemo(() => manualItems.filter(isSaveableManualItem).length, [manualItems]);
+  const manualSummary = useMemo(() => {
+    const invalid = manualItems.filter((item) => item.validationErrors.length > 0).length;
+    const duplicate = manualItems.filter((item) => item.duplicateOf).length;
+
+    return {
+      total: manualItems.length,
+      saveable: manualSaveableCount,
+      duplicate,
+      invalid
+    };
+  }, [manualItems, manualSaveableCount]);
 
   useEffect(() => {
     loadLibrary();
@@ -268,6 +279,24 @@ export default function LibraryClient() {
           </div>
 
           {manualError ? <p className="manual-error">{manualError}</p> : null}
+
+          {manualItems.length ? (
+            <div className="manual-summary">
+              <span>
+                Đã tách <strong>{manualSummary.total}</strong>
+              </span>
+              <span>
+                Lưu được <strong>{manualSummary.saveable}</strong>
+              </span>
+              <span>
+                Trùng <strong>{manualSummary.duplicate}</strong>
+              </span>
+              <span>
+                Lỗi <strong>{manualSummary.invalid}</strong>
+              </span>
+              <p>Mục trùng sẽ không được lưu nếu chưa tick "Vẫn lưu mục này".</p>
+            </div>
+          ) : null}
 
           {manualItems.length ? (
             <div className="manual-preview">
