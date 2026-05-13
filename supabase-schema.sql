@@ -7,6 +7,12 @@ exception
 end $$;
 
 do $$ begin
+  create type public.item_difficulty as enum ('easy', 'hard');
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$ begin
   create type public.study_result as enum ('thuoc', 'chua_thuoc');
 exception
   when duplicate_object then null;
@@ -26,6 +32,7 @@ create table if not exists public.items (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
   type public.item_type not null default 'sentence',
+  difficulty public.item_difficulty not null default 'easy',
   hanzi text not null,
   pinyin text,
   meaning text,
@@ -44,9 +51,22 @@ create table if not exists public.study_logs (
   studied_at timestamptz not null default now()
 );
 
+create table if not exists public.study_counters (
+  user_id uuid primary key,
+  create_count int not null default 0 check (create_count >= 0),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.documents drop constraint if exists documents_user_id_fkey;
 alter table public.items drop constraint if exists items_user_id_fkey;
 alter table public.study_logs drop constraint if exists study_logs_user_id_fkey;
+
+alter table public.items
+add column if not exists difficulty public.item_difficulty not null default 'easy';
+
+update public.items
+set difficulty = 'easy'
+where difficulty is null;
 
 create or replace function public.has_chinese_text(value text)
 returns boolean
@@ -67,6 +87,7 @@ where public.has_chinese_text(meaning);
 alter table public.documents enable row level security;
 alter table public.items enable row level security;
 alter table public.study_logs enable row level security;
+alter table public.study_counters enable row level security;
 
 drop policy if exists "documents select own" on public.documents;
 drop policy if exists "documents insert own" on public.documents;
@@ -81,6 +102,9 @@ drop policy if exists "items shared code insert" on public.items;
 drop policy if exists "items shared code update" on public.items;
 drop policy if exists "study logs select own" on public.study_logs;
 drop policy if exists "study logs insert own" on public.study_logs;
+drop policy if exists "study counters shared code select" on public.study_counters;
+drop policy if exists "study counters shared code insert" on public.study_counters;
+drop policy if exists "study counters shared code update" on public.study_counters;
 
 create policy "documents select own" on public.documents for select to authenticated using (auth.uid() = user_id);
 create policy "documents insert own" on public.documents for insert to authenticated with check (auth.uid() = user_id);
@@ -116,6 +140,7 @@ with check (user_id in (
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.items to anon, authenticated;
+grant select, insert, update on public.study_counters to anon, authenticated;
 
 create policy "study logs select own" on public.study_logs for select to authenticated using (auth.uid() = user_id);
 create policy "study logs insert own" on public.study_logs for insert to authenticated with check (
@@ -126,6 +151,28 @@ create policy "study logs insert own" on public.study_logs for insert to authent
     and items.user_id = auth.uid()
   )
 );
+
+create policy "study counters shared code select" on public.study_counters for select to anon, authenticated
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "study counters shared code insert" on public.study_counters for insert to anon, authenticated
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "study counters shared code update" on public.study_counters for update to anon, authenticated
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+))
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
 
 insert into storage.buckets (id, name, public)
 values ('documents', 'documents', false)
@@ -194,3 +241,32 @@ end;
 $$;
 
 grant execute on function public.pick_next_item(uuid, int) to authenticated;
+
+create or replace function public.increment_create_count(p_user_id uuid)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  next_count int;
+begin
+  if p_user_id not in (
+    '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+    'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+  ) then
+    raise exception 'Invalid shared account';
+  end if;
+
+  insert into public.study_counters (user_id, create_count, updated_at)
+  values (p_user_id, 1, now())
+  on conflict (user_id) do update
+  set create_count = public.study_counters.create_count + 1,
+      updated_at = now()
+  returning create_count into next_count;
+
+  return next_count;
+end;
+$$;
+
+grant execute on function public.increment_create_count(uuid) to anon, authenticated;

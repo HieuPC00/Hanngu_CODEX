@@ -28,8 +28,10 @@ try {
       to_regclass('public.documents') as documents,
       to_regclass('public.items') as items,
       to_regclass('public.study_logs') as study_logs,
+      to_regclass('public.study_counters') as study_counters,
       exists(select 1 from storage.buckets where id = 'documents') as documents_bucket,
-      to_regprocedure('public.pick_next_item(uuid, integer)') as pick_next_item
+      to_regprocedure('public.pick_next_item(uuid, integer)') as pick_next_item,
+      to_regprocedure('public.increment_create_count(uuid)') as increment_create_count
   `);
 
   console.log("Supabase schema setup completed.");

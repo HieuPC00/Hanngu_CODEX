@@ -3,16 +3,18 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
+import { difficultyOptions, inferDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
-import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
+import type { ExtractResult, ExtractedItem, ItemDifficulty, ItemType } from "@/lib/types";
 import "./upload.css";
 
 type DuplicateMatch = {
   id?: string;
   source: "library" | "batch";
   type: ItemType;
+  difficulty: ItemDifficulty;
   hanzi: string;
   pinyin?: string | null;
   meaning?: string | null;
@@ -20,7 +22,9 @@ type DuplicateMatch = {
 
 type PreviewItem = ExtractedItem & {
   duplicateOf?: DuplicateMatch;
+  replaceTarget?: DuplicateMatch;
   allowDuplicate?: boolean;
+  replaceDuplicate?: boolean;
 };
 
 type PreviewResult = Omit<ExtractResult, "items"> & {
@@ -122,25 +126,54 @@ export default function UploadClient() {
     const rows = results.flatMap((result) =>
       result.items
         .map((item) => normalizeStudyItem(item))
-        .filter(isSaveableStudyItem)
+        .filter(isInsertableStudyItem)
         .map((item) => ({
           user_id: ownerId,
           document_id: null,
           type: item.type,
+          difficulty: item.difficulty,
           hanzi: item.hanzi,
           pinyin: item.pinyin,
           meaning: item.meaning
       }))
     );
-    if (!rows.length) {
-      alert("Chưa có mục hợp lệ để lưu. Mục trùng cần bật 'Vẫn lưu mục này' nếu bạn muốn lưu.");
+    const replacements = results.flatMap((result) => result.items.map((item) => normalizeStudyItem(item)).filter(isReplaceableStudyItem));
+
+    if (!rows.length && !replacements.length) {
+      alert("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn lưu thêm hoặc thay thế mục cũ.");
       return;
     }
-    const { error } = await supabase.from("items").insert(rows);
-    if (error) {
-      alert(`Không lưu được lên Supabase: ${error.message}`);
-      return;
+
+    if (rows.length) {
+      const { error } = await supabase.from("items").insert(rows);
+      if (error) {
+        alert(`Không lưu được lên Supabase: ${error.message}`);
+        return;
+      }
     }
+
+    for (const item of replacements) {
+      const replacementId = getReplacementId(item);
+      if (!replacementId) continue;
+
+      const { error } = await supabase
+        .from("items")
+        .update({
+          type: item.type,
+          difficulty: item.difficulty,
+          hanzi: item.hanzi,
+          pinyin: item.pinyin,
+          meaning: item.meaning
+        })
+        .eq("id", replacementId)
+        .eq("user_id", ownerId);
+
+      if (error) {
+        alert(`Không thay thế được mục cũ: ${error.message}`);
+        return;
+      }
+    }
+
     router.push("/");
     router.refresh();
   }
@@ -161,6 +194,7 @@ export default function UploadClient() {
               {result.items.map((item, itemIndex) => {
                 const isInvalid = !isValidStudyItem(item);
                 const duplicate = item.duplicateOf;
+                const isLockedReplacement = Boolean(item.replaceDuplicate && item.replaceTarget?.id);
 
                 return (
                 <div className={isInvalid ? "preview-item invalid-item" : duplicate ? "preview-item duplicate-item" : "preview-item"} key={`${item.hanzi}-${itemIndex}`}>
@@ -174,6 +208,17 @@ export default function UploadClient() {
                       <option value="dialogue">Hội thoại</option>
                       <option value="word">Từ vựng</option>
                     </select>
+                    <select
+                      className="select"
+                      value={item.difficulty}
+                      onChange={(event) => updateItem(resultIndex, itemIndex, { difficulty: event.target.value as ItemDifficulty })}
+                    >
+                      {difficultyOptions.map((option) => (
+                        <option value={option.value} key={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                     <button className="danger-button" type="button" onClick={() => removeItem(resultIndex, itemIndex)}>
                       Xóa
                     </button>
@@ -181,18 +226,43 @@ export default function UploadClient() {
                   {isInvalid ? <p className="validation-text">Mục này chưa hợp lệ: ô Hán tự phải có chữ Trung, pinyin không được chứa Hán tự.</p> : null}
                   {duplicate ? (
                     <div className="duplicate-box">
-                      <strong>Trùng với {duplicate.source === "library" ? "mục đã lưu" : "mục trong lần upload này"}:</strong>
+                      <strong>
+                        {isLockedReplacement ? "Sẽ thay thế mục cũ" : `Trùng với ${duplicate.source === "library" ? "mục đã lưu" : "mục trong lần upload này"}`}:
+                      </strong>
                       <span>{duplicate.hanzi}</span>
                       {duplicate.pinyin ? <em>{duplicate.pinyin}</em> : null}
                       {duplicate.meaning ? <small>{duplicate.meaning}</small> : null}
-                      <label className="duplicate-choice">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(item.allowDuplicate)}
-                          onChange={(event) => updateItem(resultIndex, itemIndex, { allowDuplicate: event.target.checked })}
-                        />
-                        Vẫn lưu mục này
-                      </label>
+                      <div className="duplicate-actions">
+                        <label className="duplicate-choice">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(item.replaceDuplicate)}
+                            disabled={duplicate.source !== "library" || !duplicate.id}
+                            onChange={(event) =>
+                              updateItem(resultIndex, itemIndex, {
+                                replaceDuplicate: event.target.checked,
+                                replaceTarget: event.target.checked ? duplicate : undefined,
+                                allowDuplicate: event.target.checked ? false : item.allowDuplicate
+                              })
+                            }
+                          />
+                          <span>Thay thế mục cũ bằng dữ liệu mới</span>
+                        </label>
+                        <label className="duplicate-choice">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(item.allowDuplicate)}
+                            onChange={(event) =>
+                              updateItem(resultIndex, itemIndex, {
+                                allowDuplicate: event.target.checked,
+                                replaceDuplicate: event.target.checked ? false : item.replaceDuplicate,
+                                replaceTarget: event.target.checked ? undefined : item.replaceTarget
+                              })
+                            }
+                          />
+                          <span>Vẫn lưu thêm một mục riêng</span>
+                        </label>
+                      </div>
                     </div>
                   ) : null}
                   <textarea className="textarea hanzi-input" value={item.hanzi} onChange={(e) => updateItem(resultIndex, itemIndex, { hanzi: e.target.value })} />
@@ -272,7 +342,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from("items")
-      .select("id,type,hanzi,pinyin,meaning")
+      .select("id,type,difficulty,hanzi,pinyin,meaning")
       .eq("user_id", ownerId)
       .range(offset, offset + pageSize - 1);
 
@@ -283,6 +353,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
         id: item.id,
         source: "library" as const,
         type: item.type,
+        difficulty: normalizeDifficulty(item.difficulty),
         hanzi: item.hanzi,
         pinyin: item.pinyin,
         meaning: item.meaning
@@ -305,17 +376,21 @@ function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[
     ...result,
     items: result.items.map((item) => {
       const key = normalizeChineseText(item.hanzi);
-      const duplicateOf = key ? seen.get(key) : undefined;
+      const lockedTarget = item.replaceDuplicate && item.replaceTarget?.source === "library" && item.replaceTarget.id ? item.replaceTarget : undefined;
+      const duplicateOf = lockedTarget || (key ? seen.get(key) : undefined);
       const nextItem: PreviewItem = {
         ...item,
         duplicateOf,
-        allowDuplicate: duplicateOf ? Boolean(item.allowDuplicate) : false
+        replaceTarget: lockedTarget,
+        allowDuplicate: duplicateOf && !lockedTarget ? Boolean(item.allowDuplicate) : false,
+        replaceDuplicate: lockedTarget ? true : duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
       };
 
       if (key && isValidStudyItem(nextItem) && !seen.has(key)) {
         seen.set(key, {
           source: "batch",
           type: nextItem.type,
+          difficulty: nextItem.difficulty,
           hanzi: nextItem.hanzi,
           pinyin: nextItem.pinyin,
           meaning: nextItem.meaning
@@ -329,10 +404,12 @@ function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[
 
 function normalizeStudyItem(item: ExtractedItem, options?: { inferType?: boolean }): PreviewItem {
   const hanzi = item.hanzi.trim();
+  const type = options?.inferType ? inferItemType(hanzi, item.type, item.pinyin) : item.type;
 
   return {
     ...item,
-    type: options?.inferType ? inferItemType(hanzi, item.type, item.pinyin) : item.type,
+    type,
+    difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(hanzi, type)),
     hanzi,
     pinyin: hasChineseInPinyin(item.pinyin) ? "" : item.pinyin.trim(),
     meaning: cleanMeaning(item.meaning)
@@ -344,7 +421,21 @@ function isValidStudyItem(item: ExtractedItem) {
 }
 
 function isSaveableStudyItem(item: PreviewItem) {
-  return isValidStudyItem(item) && (!item.duplicateOf || item.allowDuplicate);
+  return isInsertableStudyItem(item) || isReplaceableStudyItem(item);
+}
+
+function isInsertableStudyItem(item: PreviewItem) {
+  return isValidStudyItem(item) && (!item.duplicateOf || Boolean(item.allowDuplicate));
+}
+
+function isReplaceableStudyItem(item: PreviewItem) {
+  return isValidStudyItem(item) && Boolean(item.replaceDuplicate) && Boolean(getReplacementId(item));
+}
+
+function getReplacementId(item: PreviewItem) {
+  if (item.replaceTarget?.source === "library" && item.replaceTarget.id) return item.replaceTarget.id;
+  if (item.duplicateOf?.source === "library" && item.duplicateOf.id) return item.duplicateOf.id;
+  return null;
 }
 
 async function prepareOcrImage(file: File): Promise<File> {

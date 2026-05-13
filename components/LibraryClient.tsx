@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
+import { difficultyOptions, inferDifficulty, labelDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
-import type { ExtractedItem, ItemType, StudyItem } from "@/lib/types";
+import type { ExtractedItem, ItemDifficulty, ItemType, StudyItem } from "@/lib/types";
 
 const pageSize = 200;
 
@@ -20,6 +21,7 @@ type DuplicateMatch = {
   id?: string;
   source: "library" | "batch";
   type: ItemType;
+  difficulty: ItemDifficulty;
   hanzi: string;
   pinyin?: string | null;
   meaning?: string | null;
@@ -27,6 +29,7 @@ type DuplicateMatch = {
 
 type ManualItem = ExtractedItem & {
   duplicateOf?: DuplicateMatch;
+  replaceTarget?: DuplicateMatch;
   allowDuplicate?: boolean;
   replaceDuplicate?: boolean;
   validationErrors: string[];
@@ -65,6 +68,8 @@ export default function LibraryClient() {
   const [manualExistingItems, setManualExistingItems] = useState<DuplicateMatch[]>([]);
   const [manualSaving, setManualSaving] = useState(false);
   const [typeSavingIds, setTypeSavingIds] = useState<string[]>([]);
+  const [difficultySavingIds, setDifficultySavingIds] = useState<string[]>([]);
+  const [createCount, setCreateCount] = useState(0);
 
   const manualSaveableCount = useMemo(() => manualItems.filter(isSaveableManualItem).length, [manualItems]);
   const manualSummary = useMemo(() => {
@@ -99,19 +104,21 @@ export default function LibraryClient() {
     }
 
     try {
-      const [itemResult, statsResult] = await Promise.all([
+      const [itemResult, statsResult, nextCreateCount] = await Promise.all([
         supabase
           .from("items")
-          .select("id,user_id,document_id,type,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at")
+          .select("id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at")
           .eq("user_id", ownerId)
           .order("created_at", { ascending: false })
           .range(offset, offset + pageSize - 1),
-        loadStats()
+        loadStats(),
+        loadCreateCount()
       ]);
 
       if (itemResult.error) throw itemResult.error;
 
       setStats(statsResult);
+      setCreateCount(nextCreateCount);
       setItems((current) => (append ? [...current, ...((itemResult.data || []) as StudyItem[])] : ((itemResult.data || []) as StudyItem[])));
       setStatus("ready");
     } catch (error) {
@@ -120,6 +127,15 @@ export default function LibraryClient() {
     } finally {
       setLoadingMore(false);
     }
+  }
+
+  async function loadCreateCount(): Promise<number> {
+    const supabase = createClient();
+    const ownerId = getBrowserOwnerId();
+    const { data, error } = await supabase.from("study_counters").select("create_count").eq("user_id", ownerId).maybeSingle();
+
+    if (error) return 0;
+    return data?.create_count || 0;
   }
 
   async function loadStats(): Promise<LibraryStats> {
@@ -190,6 +206,7 @@ export default function LibraryClient() {
       user_id: ownerId,
       document_id: null,
       type: item.type,
+      difficulty: item.difficulty,
       hanzi: item.hanzi,
       pinyin: item.pinyin,
       meaning: item.meaning
@@ -213,13 +230,14 @@ export default function LibraryClient() {
       }
 
       for (const item of replacements) {
-        const duplicateId = item.duplicateOf?.id;
+        const duplicateId = getReplacementId(item);
         if (!duplicateId) continue;
 
         const { error } = await supabase
           .from("items")
           .update({
             type: item.type,
+            difficulty: item.difficulty,
             hanzi: item.hanzi,
             pinyin: item.pinyin,
             meaning: item.meaning
@@ -260,6 +278,25 @@ export default function LibraryClient() {
     }
   }
 
+  async function updateLibraryItemDifficulty(item: StudyItem, nextDifficulty: ItemDifficulty) {
+    if (item.difficulty === nextDifficulty || difficultySavingIds.includes(item.id)) return;
+
+    const previousDifficulty = item.difficulty;
+    setDifficultySavingIds((current) => [...current, item.id]);
+    setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, difficulty: nextDifficulty } : currentItem)));
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("items").update({ difficulty: nextDifficulty }).eq("id", item.id).eq("user_id", getBrowserOwnerId());
+      if (error) throw error;
+    } catch (error) {
+      setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, difficulty: previousDifficulty } : currentItem)));
+      alert(error instanceof Error ? `Không đổi được độ khó: ${error.message}` : "Không đổi được độ khó.");
+    } finally {
+      setDifficultySavingIds((current) => current.filter((id) => id !== item.id));
+    }
+  }
+
   return (
     <section>
       <div className="library-head">
@@ -278,6 +315,7 @@ export default function LibraryClient() {
         <StatCard label="Từ vựng" value={stats.word} />
         <StatCard label="Hội thoại" value={stats.dialogue} />
       </div>
+      <div className="create-count-line">Số lần: {createCount}</div>
 
       {manualOpen ? (
         <section className="card manual-card">
@@ -337,6 +375,7 @@ export default function LibraryClient() {
               {manualItems.map((item, index) => {
                 const duplicate = item.duplicateOf;
                 const isInvalid = item.validationErrors.length > 0;
+                const isLockedReplacement = Boolean(item.replaceDuplicate && item.replaceTarget?.id);
 
                 return (
                   <article className={isInvalid ? "manual-preview-item invalid-item" : duplicate ? "manual-preview-item duplicate-item" : "manual-preview-item"} key={`${item.hanzi}-${index}`}>
@@ -345,6 +384,13 @@ export default function LibraryClient() {
                         <option value="sentence">Câu</option>
                         <option value="dialogue">Hội thoại</option>
                         <option value="word">Từ vựng</option>
+                      </select>
+                      <select className="select" value={item.difficulty} onChange={(event) => updateManualItem(index, { difficulty: event.target.value as ItemDifficulty })}>
+                        {difficultyOptions.map((option) => (
+                          <option value={option.value} key={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                       <button className="danger-button" type="button" onClick={() => removeManualItem(index)}>
                         Xóa
@@ -361,7 +407,9 @@ export default function LibraryClient() {
 
                     {duplicate ? (
                       <div className="duplicate-box">
-                        <strong>Trùng với {duplicate.source === "library" ? "mục đã lưu" : "mục trong lần nhập này"}:</strong>
+                        <strong>
+                          {isLockedReplacement ? "Sẽ thay thế mục cũ" : `Trùng với ${duplicate.source === "library" ? "mục đã lưu" : "mục trong lần nhập này"}`}:
+                        </strong>
                         <span>{duplicate.hanzi}</span>
                         {duplicate.pinyin ? <em>{duplicate.pinyin}</em> : null}
                         {duplicate.meaning ? <small>{duplicate.meaning}</small> : null}
@@ -374,6 +422,7 @@ export default function LibraryClient() {
                               onChange={(event) =>
                                 updateManualItem(index, {
                                   replaceDuplicate: event.target.checked,
+                                  replaceTarget: event.target.checked ? duplicate : undefined,
                                   allowDuplicate: event.target.checked ? false : item.allowDuplicate
                                 })
                               }
@@ -387,7 +436,8 @@ export default function LibraryClient() {
                               onChange={(event) =>
                                 updateManualItem(index, {
                                   allowDuplicate: event.target.checked,
-                                  replaceDuplicate: event.target.checked ? false : item.replaceDuplicate
+                                  replaceDuplicate: event.target.checked ? false : item.replaceDuplicate,
+                                  replaceTarget: event.target.checked ? undefined : item.replaceTarget
                                 })
                               }
                             />
@@ -420,8 +470,19 @@ export default function LibraryClient() {
           items.map((item) => (
             <article className="card library-card" key={item.id}>
               <div className="library-card-head">
-                <div className="library-meta">Đã hiện {item.shown_count}×</div>
-                <TypeTabs value={item.type} disabled={typeSavingIds.includes(item.id)} onChange={(nextType) => updateLibraryItemType(item, nextType)} />
+                <div className="library-meta">
+                  <span>{labelType(item.type)}</span>
+                  <span>{labelDifficulty(item.difficulty)}</span>
+                  <span>Đã hiện {item.shown_count}×</span>
+                </div>
+                <div className="library-controls">
+                  <TypeTabs value={item.type} disabled={typeSavingIds.includes(item.id)} onChange={(nextType) => updateLibraryItemType(item, nextType)} />
+                  <DifficultyTabs
+                    value={item.difficulty}
+                    disabled={difficultySavingIds.includes(item.id)}
+                    onChange={(nextDifficulty) => updateLibraryItemDifficulty(item, nextDifficulty)}
+                  />
+                </div>
               </div>
               <div className="library-hanzi">{item.hanzi}</div>
               <div className="library-pinyin">{item.pinyin}</div>
@@ -494,6 +555,24 @@ function TypeTabs({ value, disabled, onChange }: { value: ItemType; disabled?: b
   );
 }
 
+function DifficultyTabs({ value, disabled, onChange }: { value: ItemDifficulty; disabled?: boolean; onChange: (difficulty: ItemDifficulty) => void }) {
+  return (
+    <div className="difficulty-tabs" aria-label="Độ khó">
+      {difficultyOptions.map((option) => (
+        <button
+          className={value === option.value ? "difficulty-tab active" : "difficulty-tab"}
+          type="button"
+          key={option.value}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function adjustStatsForTypeChange(stats: LibraryStats, from: ItemType, to: ItemType): LibraryStats {
   if (from === to) return stats;
 
@@ -513,7 +592,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from("items")
-      .select("id,type,hanzi,pinyin,meaning")
+      .select("id,type,difficulty,hanzi,pinyin,meaning")
       .eq("user_id", ownerId)
       .range(offset, offset + pageSize - 1);
 
@@ -524,6 +603,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
         id: item.id,
         source: "library" as const,
         type: item.type,
+        difficulty: normalizeDifficulty(item.difficulty),
         hanzi: item.hanzi,
         pinyin: item.pinyin,
         meaning: item.meaning
@@ -572,6 +652,7 @@ function parseManualBlock(block: string): ManualItem | null {
 
   return {
     type: detectItemType(hanzi, pinyin),
+    difficulty: inferDifficulty(hanzi, detectItemType(hanzi, pinyin)),
     hanzi,
     pinyin,
     meaning: meaningLines.join("\n"),
@@ -594,6 +675,7 @@ function normalizeManualItem(item: ManualItem): ManualItem {
   const next: ManualItem = {
     ...item,
     type: item.type || detectItemType(item.hanzi, item.pinyin),
+    difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(item.hanzi, item.type || detectItemType(item.hanzi, item.pinyin))),
     hanzi: item.hanzi.trim(),
     pinyin: item.pinyin.trim(),
     meaning: item.meaning.trim(),
@@ -628,18 +710,21 @@ function markManualDuplicates(items: ManualItem[], existingItems: DuplicateMatch
   return items.map((item) => {
     const normalizedItem = normalizeManualItem(item);
     const key = normalizeChineseText(normalizedItem.hanzi);
-    const duplicateOf = key ? seen.get(key) : undefined;
+    const lockedTarget = item.replaceDuplicate && item.replaceTarget?.source === "library" && item.replaceTarget.id ? item.replaceTarget : undefined;
+    const duplicateOf = lockedTarget || (key ? seen.get(key) : undefined);
     const nextItem: ManualItem = {
       ...normalizedItem,
       duplicateOf,
-      allowDuplicate: duplicateOf ? Boolean(item.allowDuplicate) : false,
-      replaceDuplicate: duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
+      replaceTarget: lockedTarget,
+      allowDuplicate: duplicateOf && !lockedTarget ? Boolean(item.allowDuplicate) : false,
+      replaceDuplicate: lockedTarget ? true : duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
     };
 
     if (key && !nextItem.validationErrors.length && !seen.has(key)) {
       seen.set(key, {
         source: "batch",
         type: nextItem.type,
+        difficulty: nextItem.difficulty,
         hanzi: nextItem.hanzi,
         pinyin: nextItem.pinyin,
         meaning: nextItem.meaning
@@ -662,9 +747,14 @@ function isReplaceableManualItem(item: ManualItem) {
   return (
     !item.validationErrors.length &&
     Boolean(item.replaceDuplicate) &&
-    item.duplicateOf?.source === "library" &&
-    Boolean(item.duplicateOf.id)
+    Boolean(getReplacementId(item))
   );
+}
+
+function getReplacementId(item: ManualItem) {
+  if (item.replaceTarget?.source === "library" && item.replaceTarget.id) return item.replaceTarget.id;
+  if (item.duplicateOf?.source === "library" && item.duplicateOf.id) return item.duplicateOf.id;
+  return null;
 }
 
 function detectItemType(hanzi: string, pinyin?: string | null): ItemType {

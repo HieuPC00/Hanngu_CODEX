@@ -3,6 +3,27 @@
   gap: 14px;
 }
 
+.difficulty-filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.difficulty-filter-button {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--muted);
+  font-weight: 850;
+}
+
+.difficulty-filter-button.active {
+  border-color: rgba(220, 38, 38, 0.28);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--red);
+}
+
 .ready-card {
   display: grid;
   gap: 16px;

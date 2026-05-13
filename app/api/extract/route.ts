@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { ACCESS_COOKIE_NAME, isValidAccessCode, readCookieValue } from "@/lib/shared-access";
+import { inferDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText } from "@/lib/text-quality";
-import type { ExtractedItem, ItemType } from "@/lib/types";
+import type { ExtractedItem, ItemDifficulty, ItemType } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const allowedTypes: ItemType[] = ["word", "sentence", "dialogue"];
+const allowedDifficulties: ItemDifficulty[] = ["easy", "hard"];
 
 type ImageInput = {
   imageIndex: number;
@@ -132,7 +134,7 @@ Important coverage rules:
 - Omit only pure page UI, page numbers, watermarks, ads, website/browser text, and non-learning headers/footers.
 
 Return valid JSON only:
-{"results":[{"imageIndex":0,"items":[{"type":"word|sentence|dialogue","hanzi":"...","pinyin":"...","meaning":"..."}]}]}
+{"results":[{"imageIndex":0,"items":[{"type":"word|sentence|dialogue","difficulty":"easy|hard","hanzi":"...","pinyin":"...","meaning":"..."}]}]}
 
 Strict field rules:
 1. "hanzi" MUST contain the original Chinese characters from the image, for example: 这台电脑五千块钱。
@@ -145,10 +147,11 @@ Strict field rules:
    - Example: "Chiếc máy tính này năm nghìn tệ."
 4. For dialogue, keep corresponding lines separated by \\n in hanzi, pinyin, and meaning.
 5. Use type="word" for single vocabulary, "sentence" for standalone sentences, "dialogue" for multi-line conversations.
-6. Ignore page numbers, UI text, watermarks, headers, and footers.
-7. Do not invent extra Chinese content. It is allowed to generate pinyin and Vietnamese meaning from Chinese that is actually visible in the image.
-8. Preserve the reading order of the page in the returned array.
-9. Prefer more complete extraction over a short summary. If the page has 20 study lines, return about 20 items.`;
+6. Set difficulty="easy" for short vocabulary or simple short sentences. Set difficulty="hard" for dialogues, long sentences, multi-clause text, paragraphs, or dense exercises.
+7. Ignore page numbers, UI text, watermarks, headers, and footers.
+8. Do not invent extra Chinese content. It is allowed to generate pinyin and Vietnamese meaning from Chinese that is actually visible in the image.
+9. Preserve the reading order of the page in the returned array.
+10. Prefer more complete extraction over a short summary. If the page has 20 study lines, return about 20 items.`;
 
 const responseJsonSchema = {
   type: "object",
@@ -172,6 +175,11 @@ const responseJsonSchema = {
                   enum: allowedTypes,
                   description: "word for vocabulary, sentence for standalone sentence/question, dialogue for multi-line conversation."
                 },
+                difficulty: {
+                  type: "string",
+                  enum: allowedDifficulties,
+                  description: "easy for short/simple items, hard for dialogues, long sentences, paragraphs, or dense exercises."
+                },
                 hanzi: {
                   type: "string",
                   description: "Original Chinese characters exactly visible in the image. No pinyin, no Vietnamese, no Latin text."
@@ -185,7 +193,7 @@ const responseJsonSchema = {
                   description: "Natural Vietnamese meaning only. No Chinese characters."
                 }
               },
-              required: ["type", "hanzi", "pinyin", "meaning"]
+              required: ["type", "difficulty", "hanzi", "pinyin", "meaning"]
             }
           }
         },
@@ -244,7 +252,7 @@ async function extractWithGemini(apiKey: string, images: ImageInput[]): Promise<
   const parsed = JSON.parse(content || "{}");
   const rawResults: Array<{
     imageIndex?: number;
-    items?: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }>;
+    items?: Array<{ type?: ItemType; difficulty?: ItemDifficulty; hanzi?: string; pinyin?: string; meaning?: string }>;
   }> = Array.isArray(parsed.results) ? parsed.results : [];
   const byIndex = new Map<number, ExtractedItem[]>();
 
@@ -256,14 +264,16 @@ async function extractWithGemini(apiKey: string, images: ImageInput[]): Promise<
   return byIndex;
 }
 
-function normalizeExtractedItems(rawItems: Array<{ type?: ItemType; hanzi?: string; pinyin?: string; meaning?: string }>): ExtractedItem[] {
+function normalizeExtractedItems(rawItems: Array<{ type?: ItemType; difficulty?: ItemDifficulty; hanzi?: string; pinyin?: string; meaning?: string }>): ExtractedItem[] {
   return rawItems
     .map((item): ExtractedItem => {
       const candidateType = item.type;
       const type = candidateType && allowedTypes.includes(candidateType) ? candidateType : "sentence";
+      const hanzi = String(item.hanzi || "").trim();
       return {
         type,
-        hanzi: String(item.hanzi || "").trim(),
+        difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(hanzi, type)),
+        hanzi,
         pinyin: hasChineseInPinyin(item.pinyin) ? "" : String(item.pinyin || "").trim(),
         meaning: cleanMeaning(item.meaning)
       };

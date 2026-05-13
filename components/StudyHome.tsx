@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
+import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
 import { getBrowserOwnerId } from "@/lib/shared-access";
-import type { StudyItem } from "@/lib/types";
+import type { ItemDifficulty, StudyItem } from "@/lib/types";
 import "./study.css";
 
 type VisibleParts = {
@@ -14,9 +15,10 @@ type VisibleParts = {
 };
 
 type CheckState = "idle" | "correct" | "wrong";
+type DifficultyFilter = "all" | ItemDifficulty;
 
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
-const itemColumns = "id,user_id,document_id,type,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
+const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 const correctMessages = [
   "Đúng rồi, tiếp tục tiến độ này nhé.",
   "Chuẩn luôn, nhớ bài tốt nha.",
@@ -50,6 +52,7 @@ export default function StudyHome() {
   const [answer, setAnswer] = useState("");
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [feedbackText, setFeedbackText] = useState("");
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
 
   useEffect(() => {
     if (window.location.hash.includes("error=")) {
@@ -91,12 +94,22 @@ export default function StudyHome() {
     setVisible(next);
   }
 
-  async function pickNext() {
+  function changeDifficultyFilter(nextFilter: DifficultyFilter) {
+    setDifficultyFilter(nextFilter);
+    setItem(null);
+    resetPractice();
+  }
+
+  async function pickNext(options?: { countCreateClick?: boolean }) {
     setLoading(true);
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
 
-    const { data, error } = await supabase
+    if (options?.countCreateClick) {
+      await incrementCreateCount(ownerId);
+    }
+
+    let query = supabase
       .from("items")
       .select(itemColumns)
       .eq("user_id", ownerId)
@@ -104,6 +117,12 @@ export default function StudyHome() {
       .order("shown_count", { ascending: true })
       .order("last_shown_at", { ascending: true, nullsFirst: true })
       .limit(1);
+
+    if (difficultyFilter !== "all") {
+      query = query.eq("difficulty", difficultyFilter);
+    }
+
+    const { data, error } = await query;
 
     setLoading(false);
     if (error) {
@@ -115,6 +134,7 @@ export default function StudyHome() {
     if (!next) {
       setItem(null);
       resetPractice();
+      alert(difficultyFilter === "all" ? "Chưa có mục học phù hợp." : `Chưa có mục ${labelDifficulty(difficultyFilter)} để học.`);
       return;
     }
 
@@ -144,6 +164,11 @@ export default function StudyHome() {
     setItem((updated as StudyItem) || fallbackItem);
     resetPractice();
     refreshCount();
+  }
+
+  async function incrementCreateCount(ownerId: string) {
+    const supabase = createClient();
+    await supabase.rpc("increment_create_count", { p_user_id: ownerId });
   }
 
   function resetPractice() {
@@ -232,11 +257,13 @@ export default function StudyHome() {
 
   return (
     <section className="study-stack">
+      <DifficultyFilterControl value={difficultyFilter} onChange={changeDifficultyFilter} />
+
       {!item ? (
         <div className="ready-card card">
           <div className="learn-mark">学</div>
           <h1>Sẵn sàng học?</h1>
-          <button className="button full-width" type="button" onClick={pickNext} disabled={loading}>
+          <button className="button full-width" type="button" onClick={() => pickNext()} disabled={loading}>
             {loading ? "Đang tạo..." : "Tạo"}
           </button>
         </div>
@@ -246,6 +273,8 @@ export default function StudyHome() {
             <header className="flashcard-head">
               <span>
                 {labelType(item.type)} · Đã hiện {item.shown_count}×
+                {" · "}
+                {labelDifficulty(item.difficulty)}
               </span>
               <button className="speaker" type="button" onClick={speak} aria-label="Phát âm">
                 🔊
@@ -306,12 +335,32 @@ export default function StudyHome() {
             </button>
           </section>
 
-          <button className="ghost-button full-width" type="button" onClick={pickNext}>
+          <button className="ghost-button full-width" type="button" onClick={() => pickNext({ countCreateClick: true })}>
             Tạo câu khác
           </button>
         </>
       )}
     </section>
+  );
+}
+
+function DifficultyFilterControl({ value, onChange }: { value: DifficultyFilter; onChange: (value: DifficultyFilter) => void }) {
+  return (
+    <div className="difficulty-filter" aria-label="Bộ lọc độ khó">
+      <button className={value === "all" ? "difficulty-filter-button active" : "difficulty-filter-button"} type="button" onClick={() => onChange("all")}>
+        Tất cả
+      </button>
+      {difficultyOptions.map((option) => (
+        <button
+          className={value === option.value ? "difficulty-filter-button active" : "difficulty-filter-button"}
+          type="button"
+          key={option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

@@ -1,10 +1,12 @@
 export type ItemType = "word" | "sentence" | "dialogue";
+export type ItemDifficulty = "easy" | "hard";
 
 export type StudyItem = {
   id: string;
   user_id: string;
   document_id: string | null;
   type: ItemType;
+  difficulty: ItemDifficulty;
   hanzi: string;
   pinyin: string | null;
   meaning: string | null;
@@ -17,6 +19,7 @@ export type StudyItem = {
 
 export type ExtractedItem = {
   type: ItemType;
+  difficulty: ItemDifficulty;
   hanzi: string;
   pinyin: string;
   meaning: string;
