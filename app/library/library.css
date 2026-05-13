@@ -250,6 +250,15 @@
   font-weight: 850;
 }
 
+.duplicate-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.duplicate-choice input:disabled + span {
+  opacity: 0.55;
+}
+
 .manual-hanzi-input {
   min-height: 96px;
   font-family: var(--hanzi-font);

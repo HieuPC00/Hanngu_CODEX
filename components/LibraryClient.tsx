@@ -28,6 +28,7 @@ type DuplicateMatch = {
 type ManualItem = ExtractedItem & {
   duplicateOf?: DuplicateMatch;
   allowDuplicate?: boolean;
+  replaceDuplicate?: boolean;
   validationErrors: string[];
 };
 
@@ -69,11 +70,13 @@ export default function LibraryClient() {
   const manualSummary = useMemo(() => {
     const invalid = manualItems.filter((item) => item.validationErrors.length > 0).length;
     const duplicate = manualItems.filter((item) => item.duplicateOf).length;
+    const replace = manualItems.filter(isReplaceableManualItem).length;
 
     return {
       total: manualItems.length,
       saveable: manualSaveableCount,
       duplicate,
+      replace,
       invalid
     };
   }, [manualItems, manualSaveableCount]);
@@ -183,7 +186,7 @@ export default function LibraryClient() {
 
   async function saveManualItems() {
     const ownerId = getBrowserOwnerId();
-    const rows = manualItems.filter(isSaveableManualItem).map((item) => ({
+    const insertRows = manualItems.filter(isInsertableManualItem).map((item) => ({
       user_id: ownerId,
       document_id: null,
       type: item.type,
@@ -191,9 +194,10 @@ export default function LibraryClient() {
       pinyin: item.pinyin,
       meaning: item.meaning
     }));
+    const replacements = manualItems.filter(isReplaceableManualItem);
 
-    if (!rows.length) {
-      setManualError("Chưa có mục hợp lệ để lưu. Mục trùng cần bật 'Vẫn lưu mục này' nếu bạn muốn lưu.");
+    if (!insertRows.length && !replacements.length) {
+      setManualError("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn 'Vẫn lưu thêm' hoặc 'Thay thế mục cũ'.");
       return;
     }
 
@@ -202,8 +206,29 @@ export default function LibraryClient() {
 
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("items").insert(rows);
-      if (error) throw error;
+
+      if (insertRows.length) {
+        const { error } = await supabase.from("items").insert(insertRows);
+        if (error) throw error;
+      }
+
+      for (const item of replacements) {
+        const duplicateId = item.duplicateOf?.id;
+        if (!duplicateId) continue;
+
+        const { error } = await supabase
+          .from("items")
+          .update({
+            type: item.type,
+            hanzi: item.hanzi,
+            pinyin: item.pinyin,
+            meaning: item.meaning
+          })
+          .eq("id", duplicateId)
+          .eq("user_id", ownerId);
+
+        if (error) throw error;
+      }
 
       closeManualForm();
       await loadLibrary();
@@ -298,9 +323,12 @@ export default function LibraryClient() {
                 Trùng <strong>{manualSummary.duplicate}</strong>
               </span>
               <span>
+                Thay thế <strong>{manualSummary.replace}</strong>
+              </span>
+              <span>
                 Lỗi <strong>{manualSummary.invalid}</strong>
               </span>
-              <p>Mục trùng sẽ không được lưu nếu chưa tick "Vẫn lưu mục này".</p>
+              <p>Mục trùng sẽ không được lưu nếu chưa chọn lưu thêm hoặc thay thế mục cũ.</p>
             </div>
           ) : null}
 
@@ -337,10 +365,35 @@ export default function LibraryClient() {
                         <span>{duplicate.hanzi}</span>
                         {duplicate.pinyin ? <em>{duplicate.pinyin}</em> : null}
                         {duplicate.meaning ? <small>{duplicate.meaning}</small> : null}
-                        <label className="duplicate-choice">
-                          <input type="checkbox" checked={Boolean(item.allowDuplicate)} onChange={(event) => updateManualItem(index, { allowDuplicate: event.target.checked })} />
-                          Vẫn lưu mục này
-                        </label>
+                        <div className="duplicate-actions">
+                          <label className="duplicate-choice">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(item.replaceDuplicate)}
+                              disabled={duplicate.source !== "library" || !duplicate.id}
+                              onChange={(event) =>
+                                updateManualItem(index, {
+                                  replaceDuplicate: event.target.checked,
+                                  allowDuplicate: event.target.checked ? false : item.allowDuplicate
+                                })
+                              }
+                            />
+                            <span>Thay thế mục cũ bằng dữ liệu mới</span>
+                          </label>
+                          <label className="duplicate-choice">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(item.allowDuplicate)}
+                              onChange={(event) =>
+                                updateManualItem(index, {
+                                  allowDuplicate: event.target.checked,
+                                  replaceDuplicate: event.target.checked ? false : item.replaceDuplicate
+                                })
+                              }
+                            />
+                            <span>Vẫn lưu thêm một mục riêng</span>
+                          </label>
+                        </div>
                       </div>
                     ) : null}
 
@@ -579,7 +632,8 @@ function markManualDuplicates(items: ManualItem[], existingItems: DuplicateMatch
     const nextItem: ManualItem = {
       ...normalizedItem,
       duplicateOf,
-      allowDuplicate: duplicateOf ? Boolean(item.allowDuplicate) : false
+      allowDuplicate: duplicateOf ? Boolean(item.allowDuplicate) : false,
+      replaceDuplicate: duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
     };
 
     if (key && !nextItem.validationErrors.length && !seen.has(key)) {
@@ -597,7 +651,20 @@ function markManualDuplicates(items: ManualItem[], existingItems: DuplicateMatch
 }
 
 function isSaveableManualItem(item: ManualItem) {
-  return !item.validationErrors.length && (!item.duplicateOf || item.allowDuplicate);
+  return isInsertableManualItem(item) || isReplaceableManualItem(item);
+}
+
+function isInsertableManualItem(item: ManualItem) {
+  return !item.validationErrors.length && (!item.duplicateOf || Boolean(item.allowDuplicate));
+}
+
+function isReplaceableManualItem(item: ManualItem) {
+  return (
+    !item.validationErrors.length &&
+    Boolean(item.replaceDuplicate) &&
+    item.duplicateOf?.source === "library" &&
+    Boolean(item.duplicateOf.id)
+  );
 }
 
 function detectItemType(hanzi: string, pinyin?: string | null): ItemType {
