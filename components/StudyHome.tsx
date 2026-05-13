@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
-import { SHARED_OWNER_ID } from "@/lib/shared-access";
+import { getBrowserOwnerId } from "@/lib/shared-access";
 import type { StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -47,10 +47,11 @@ export default function StudyHome() {
 
   async function refreshCount() {
     const supabase = createClient();
+    const ownerId = getBrowserOwnerId();
     const { count: itemCount, error } = await supabase
       .from("items")
       .select("id", { count: "exact", head: true })
-      .eq("user_id", SHARED_OWNER_ID);
+      .eq("user_id", ownerId);
 
     if (error) {
       setCount(0);
@@ -68,11 +69,12 @@ export default function StudyHome() {
   async function pickNext() {
     setLoading(true);
     const supabase = createClient();
+    const ownerId = getBrowserOwnerId();
 
     const { data, error } = await supabase
       .from("items")
       .select(itemColumns)
-      .eq("user_id", SHARED_OWNER_ID)
+      .eq("user_id", ownerId)
       .lte("mastery", 5)
       .order("shown_count", { ascending: true })
       .order("last_shown_at", { ascending: true, nullsFirst: true })
@@ -104,7 +106,7 @@ export default function StudyHome() {
         last_shown_at: now
       })
       .eq("id", next.id)
-      .eq("user_id", SHARED_OWNER_ID)
+      .eq("user_id", ownerId)
       .select(itemColumns)
       .single();
 

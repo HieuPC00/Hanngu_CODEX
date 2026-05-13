@@ -44,6 +44,10 @@ create table if not exists public.study_logs (
   studied_at timestamptz not null default now()
 );
 
+alter table public.documents drop constraint if exists documents_user_id_fkey;
+alter table public.items drop constraint if exists items_user_id_fkey;
+alter table public.study_logs drop constraint if exists study_logs_user_id_fkey;
+
 create or replace function public.has_chinese_text(value text)
 returns boolean
 language sql
@@ -89,14 +93,26 @@ create policy "items update own" on public.items for update to authenticated usi
 create policy "items delete own" on public.items for delete to authenticated using (auth.uid() = user_id);
 
 create policy "items shared code select" on public.items for select to anon, authenticated
-using (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
 
 create policy "items shared code insert" on public.items for insert to anon, authenticated
-with check (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
 
 create policy "items shared code update" on public.items for update to anon, authenticated
-using (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid)
-with check (user_id = '88d2c940-8702-41c9-8669-7b176f01c216'::uuid);
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+))
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.items to anon, authenticated;

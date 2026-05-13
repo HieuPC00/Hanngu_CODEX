@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { inferItemType } from "@/lib/item-type";
-import { SHARED_OWNER_ID } from "@/lib/shared-access";
+import { getBrowserOwnerId } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemType } from "@/lib/types";
 import "./upload.css";
@@ -118,12 +118,13 @@ export default function UploadClient() {
 
   async function saveItems() {
     const supabase = createClient();
+    const ownerId = getBrowserOwnerId();
     const rows = results.flatMap((result) =>
       result.items
         .map((item) => normalizeStudyItem(item))
         .filter(isSaveableStudyItem)
         .map((item) => ({
-          user_id: SHARED_OWNER_ID,
+          user_id: ownerId,
           document_id: null,
           type: item.type,
           hanzi: item.hanzi,
@@ -264,6 +265,7 @@ async function extractImages(images: File[]): Promise<ExtractResult[]> {
 
 async function loadExistingItems(): Promise<DuplicateMatch[]> {
   const supabase = createClient();
+  const ownerId = getBrowserOwnerId();
   const pageSize = 1000;
   const allItems: DuplicateMatch[] = [];
 
@@ -271,7 +273,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
     const { data, error } = await supabase
       .from("items")
       .select("id,type,hanzi,pinyin,meaning")
-      .eq("user_id", SHARED_OWNER_ID)
+      .eq("user_id", ownerId)
       .range(offset, offset + pageSize - 1);
 
     if (error) return allItems;

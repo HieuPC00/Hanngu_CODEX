@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
-import { ACCESS_COOKIE_NAME, isValidAccessCode, SHARED_ACCESS_CODE } from "@/lib/shared-access";
+import { ACCESS_COOKIE_NAME, isValidAccessCode } from "@/lib/shared-access";
 import "./login.css";
 
 export default function LoginPage() {
@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (getCookie(ACCESS_COOKIE_NAME) === SHARED_ACCESS_CODE) router.replace("/");
+    if (isValidAccessCode(getCookie(ACCESS_COOKIE_NAME))) router.replace("/");
   }, [router]);
 
   async function signInWithCode(event: React.FormEvent<HTMLFormElement>) {
