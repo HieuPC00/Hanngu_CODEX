@@ -17,6 +17,30 @@ type CheckState = "idle" | "correct" | "wrong";
 
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
 const itemColumns = "id,user_id,document_id,type,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
+const correctMessages = [
+  "Đúng rồi, tiếp tục tiến độ này nhé.",
+  "Chuẩn luôn, nhớ bài tốt nha.",
+  "Tốt lắm, qua câu tiếp theo thôi.",
+  'Hay, "ngấm" vào đầu rồi nha.',
+  "Đúng rồi, phản xạ bắt đầu nhanh hơn rồi á.",
+  "Chuẩn, câu này coi như nằm lòng rồi hen.",
+  "Chính xác! Thêm câu nữa cho nóng.",
+  "Đều tay thế này thì kiểu gì cũng giỏi.",
+  "Ngon lành, cứ đi hướng này là chuẩn bài.",
+  "Ngon lành, củng cố thêm câu nữa đi."
+];
+const wrongMessages = [
+  "Chưa chuẩn rồi, nhìn kỹ lại mặt chữ một chút nhé.",
+  "Sai chút thôi, sửa lại phát là nhớ ngay.",
+  "Hình như chưa khớp lắm, bình tĩnh coi lại xem sao.",
+  'Đang đoạn "nạp" kiến thức nên nhầm tí không sao, thử lại nào.',
+  "Lỗi này mới giúp mình nhớ lâu, làm lại nhé.",
+  "Suýt soát rồi! Kiểm tra lại thứ tự chữ một tẹo thôi.",
+  "Chưa chuẩn lắm, đọc kỹ rồi gõ chậm lại chút xem.",
+  "Sai là chuyện bình thường, sửa xong là tiến bộ thôi.",
+  'Câu này hơi "khoai", thử lại lượt nữa cho chắc tay nào.',
+  "Chưa đúng roài, tập trung và làm lại nha."
+];
 
 export default function StudyHome() {
   const [count, setCount] = useState<number | null>(null);
@@ -25,6 +49,7 @@ export default function StudyHome() {
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState("");
   const [checkState, setCheckState] = useState<CheckState>("idle");
+  const [feedbackText, setFeedbackText] = useState("");
 
   useEffect(() => {
     if (window.location.hash.includes("error=")) {
@@ -125,11 +150,15 @@ export default function StudyHome() {
     setVisible(defaultVisible);
     setAnswer("");
     setCheckState("idle");
+    setFeedbackText("");
   }
 
   function updateAnswer(nextAnswer: string) {
     setAnswer(nextAnswer);
-    if (checkState !== "idle") setCheckState("idle");
+    if (checkState !== "idle") {
+      setCheckState("idle");
+      setFeedbackText("");
+    }
   }
 
   function checkAnswer() {
@@ -140,11 +169,13 @@ export default function StudyHome() {
     if (result.correct) {
       setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
       setCheckState("correct");
+      setFeedbackText(pickRandomMessage(correctMessages));
       return;
     }
 
     setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
     setCheckState("wrong");
+    setFeedbackText(pickRandomMessage(wrongMessages));
   }
 
   function speak() {
@@ -259,8 +290,8 @@ export default function StudyHome() {
             />
 
             {checkState !== "idle" ? (
-              <div className={`check-result ${checkState}`}>
-                {checkState === "correct" ? "Đúng" : answer.trim() ? "Chưa đúng. Phần đỏ là phần cần sửa." : "Bạn chưa nhập Hán tự."}
+              <div className={`check-result ${checkState}`} aria-live="polite">
+                {feedbackText}
               </div>
             ) : null}
 
@@ -292,6 +323,10 @@ function labelType(type: StudyItem["type"]) {
   if (type === "dialogue") return "Hội thoại";
   if (type === "word") return "Từ vựng";
   return "Câu";
+}
+
+function pickRandomMessage(messages: string[]) {
+  return messages[Math.floor(Math.random() * messages.length)] || "";
 }
 
 function hanziSizeClass(text: string) {
