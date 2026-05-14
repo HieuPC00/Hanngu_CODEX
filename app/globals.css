@@ -49,7 +49,7 @@ a {
   width: min(100%, 760px);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 76px 14px 88px;
+  padding: 60px 10px 72px;
 }
 
 .top-header {
@@ -59,8 +59,8 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 62px;
-  padding: 0 max(14px, calc((100vw - 760px) / 2 + 14px));
+  height: 52px;
+  padding: 0 max(10px, calc((100vw - 760px) / 2 + 10px));
   border-bottom: 1px solid var(--line);
   background: rgba(255, 248, 247, 0.92);
   backdrop-filter: blur(12px);
@@ -69,20 +69,20 @@ a {
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   font-weight: 900;
 }
 
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   background: var(--red);
   color: white;
   font-family: serif;
-  font-size: 1.35rem;
+  font-size: 1.22rem;
 }
 
 .bottom-nav {
@@ -91,10 +91,10 @@ a {
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
   width: min(100%, 760px);
   margin: 0 auto;
-  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(255, 248, 247, 0.95);
   backdrop-filter: blur(12px);
@@ -103,8 +103,8 @@ a {
 .nav-link {
   display: grid;
   place-items: center;
-  min-height: 48px;
-  border-radius: 12px;
+  min-height: 42px;
+  border-radius: 10px;
   color: var(--muted);
   font-weight: 850;
 }
@@ -118,10 +118,10 @@ a {
 .danger-button,
 .ghost-button,
 .success-button {
-  min-height: 48px;
+  min-height: 42px;
   border: 0;
-  border-radius: 14px;
-  padding: 0 16px;
+  border-radius: 12px;
+  padding: 0 12px;
   font-weight: 900;
 }
 
@@ -153,7 +153,7 @@ a {
 
 .card {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -176,12 +176,12 @@ a {
 
 .stack {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
 }
@@ -191,30 +191,30 @@ a {
 .select {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: white;
   color: var(--ink);
 }
 
 .field,
 .select {
-  min-height: 48px;
-  padding: 0 12px;
+  min-height: 42px;
+  padding: 0 10px;
 }
 
 .textarea {
-  min-height: 96px;
-  padding: 12px;
+  min-height: 84px;
+  padding: 10px;
   resize: vertical;
 }
 
 .page-title {
-  margin: 0 0 6px;
-  font-size: 1.65rem;
+  margin: 0 0 4px;
+  font-size: 1.45rem;
 }
 
 .page-subtitle {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.42;
 }

@@ -1,7 +1,7 @@
 .library-head {
   display: grid;
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .manual-open-button {
@@ -11,34 +11,34 @@
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .stat-card {
-  min-height: 82px;
+  min-height: 64px;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 12px;
   background: white;
-  padding: 14px;
+  padding: 10px;
 }
 
 .stat-card span {
   display: block;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 800;
 }
 
 .stat-card strong {
   display: block;
-  margin-top: 6px;
-  font-size: 1.8rem;
+  margin-top: 4px;
+  font-size: 1.45rem;
   line-height: 1;
 }
 
 .create-count-line {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 850;
@@ -47,23 +47,23 @@
 
 .library-stack {
   display: grid;
-  gap: 12px;
+  gap: 9px;
 }
 
 .library-card {
-  padding: 16px;
+  padding: 11px;
 }
 
 .library-card-head {
   display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .library-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   color: var(--muted);
   font-size: 0.9rem;
   font-weight: 850;
@@ -72,18 +72,18 @@
 .library-meta span {
   border-radius: 999px;
   background: rgba(107, 114, 128, 0.08);
-  padding: 5px 8px;
+  padding: 4px 7px;
 }
 
 .library-controls {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .type-tabs,
 .difficulty-tabs {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
 }
 
@@ -97,13 +97,13 @@
 
 .type-tab,
 .difficulty-tab {
-  min-height: 38px;
+  min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
   color: var(--muted);
   font-weight: 850;
-  font-size: 0.9rem;
+  font-size: 0.84rem;
 }
 
 .type-tab.active {
@@ -126,60 +126,60 @@
 .library-hanzi {
   white-space: pre-line;
   font-family: var(--hanzi-font);
-  font-size: 1.55rem;
+  font-size: 1.32rem;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .library-pinyin {
   white-space: pre-line;
-  margin-top: 8px;
+  margin-top: 5px;
   color: var(--muted);
   font-style: italic;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .library-meaning {
   white-space: pre-line;
-  margin-top: 8px;
+  margin-top: 5px;
   color: #374151;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 
 .manual-card {
   display: grid;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 11px;
 }
 
 .manual-head {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .manual-head h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.18rem;
 }
 
 .manual-head p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.34;
 }
 
 .manual-textarea {
-  min-height: 240px;
+  min-height: 190px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  line-height: 1.55;
+  line-height: 1.42;
 }
 
 .manual-actions {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 
 .manual-error,
@@ -187,17 +187,17 @@
   margin: 0;
   color: var(--red);
   font-weight: 800;
-  line-height: 1.45;
+  line-height: 1.34;
 }
 
 .manual-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.78);
-  padding: 10px;
+  padding: 8px;
 }
 
 .manual-summary span {
@@ -213,21 +213,21 @@
   grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
-  font-size: 0.92rem;
-  line-height: 1.4;
+  font-size: 0.86rem;
+  line-height: 1.3;
 }
 
 .manual-preview {
   display: grid;
-  gap: 12px;
+  gap: 9px;
 }
 
 .manual-preview-item {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 9px;
   background: #fff;
 }
 
@@ -244,16 +244,16 @@
 .manual-item-toolbar {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 .validation-box {
   display: grid;
-  gap: 4px;
-  border-radius: 12px;
+  gap: 3px;
+  border-radius: 10px;
   background: rgba(220, 38, 38, 0.08);
-  padding: 10px;
+  padding: 8px;
   color: var(--red);
   font-weight: 800;
 }
@@ -264,15 +264,15 @@
 
 .duplicate-box {
   display: grid;
-  gap: 6px;
-  border-radius: 12px;
+  gap: 5px;
+  border-radius: 10px;
   background: rgba(245, 158, 11, 0.12);
-  padding: 10px;
+  padding: 8px;
 }
 
 .duplicate-box span {
   font-family: var(--hanzi-font);
-  font-size: 1.25rem;
+  font-size: 1.12rem;
   font-weight: 700;
 }
 
@@ -284,7 +284,7 @@
 .duplicate-choice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-weight: 850;
 }
 
@@ -298,10 +298,10 @@
 }
 
 .manual-hanzi-input {
-  min-height: 96px;
+  min-height: 76px;
   font-family: var(--hanzi-font);
-  font-size: 1.25rem;
-  line-height: 1.45;
+  font-size: 1.12rem;
+  line-height: 1.34;
 }
 
 .manual-pinyin-input {
@@ -320,7 +320,7 @@
 }
 
 .load-more-button {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 @media (min-width: 720px) {

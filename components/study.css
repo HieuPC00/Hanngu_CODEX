@@ -1,18 +1,18 @@
 .study-stack {
   display: grid;
-  gap: 14px;
+  gap: 9px;
 }
 
 .difficulty-filter {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 7px;
 }
 
 .difficulty-filter-button {
-  min-height: 44px;
+  min-height: 38px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff;
   color: var(--muted);
   font-weight: 850;
@@ -26,44 +26,44 @@
 
 .ready-card {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   place-items: center;
-  min-height: 58vh;
-  padding: 24px;
+  min-height: 50vh;
+  padding: 18px;
   text-align: center;
 }
 
 .learn-mark {
   display: grid;
   place-items: center;
-  width: 82px;
-  height: 82px;
-  border-radius: 22px;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
   background: var(--red);
   color: white;
   font-family: serif;
-  font-size: 3rem;
+  font-size: 2.45rem;
   font-weight: 900;
 }
 
 .flashcard {
-  padding: 16px;
+  padding: 11px;
 }
 
 .flashcard-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 8px;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   font-weight: 850;
 }
 
 .speaker {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 38px;
+  min-height: 38px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: white;
@@ -75,7 +75,7 @@
 }
 
 .blurred {
-  filter: blur(8px);
+  filter: blur(7px);
   opacity: 0.42;
   user-select: none;
 }
@@ -83,53 +83,53 @@
 .hanzi-part {
   overflow-wrap: anywhere;
   font-family: var(--hanzi-font);
-  font-size: clamp(2rem, 8.5vw, 3.4rem);
+  font-size: clamp(1.75rem, 7.2vw, 3rem);
   font-weight: 600;
-  line-height: 1.22;
+  line-height: 1.16;
 }
 
 .hanzi-short {
-  font-size: clamp(2.45rem, 10vw, 4.1rem);
+  font-size: clamp(2.05rem, 8.7vw, 3.45rem);
 }
 
 .hanzi-medium {
-  font-size: clamp(1.85rem, 7.6vw, 3rem);
+  font-size: clamp(1.58rem, 6.7vw, 2.58rem);
 }
 
 .hanzi-compact {
-  font-size: clamp(1.45rem, 6vw, 2.25rem);
-  line-height: 1.32;
+  font-size: clamp(1.28rem, 5.4vw, 2rem);
+  line-height: 1.22;
 }
 
 .pinyin-part {
-  margin-top: 14px;
+  margin-top: 8px;
   color: var(--muted);
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   font-style: italic;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 .meaning-part {
-  margin-top: 12px;
+  margin-top: 7px;
   color: #374151;
-  font-size: 1.03rem;
-  line-height: 1.48;
+  font-size: 0.98rem;
+  line-height: 1.36;
 }
 
 .toggle-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 7px;
 }
 
 .toggle {
-  min-height: 44px;
+  min-height: 39px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: #f3f4f6;
   color: var(--muted);
-  padding: 0 10px;
-  font-size: 0.95rem;
+  padding: 0 8px;
+  font-size: 0.9rem;
   font-weight: 850;
 }
 
@@ -140,8 +140,8 @@
 
 .practice-card {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 11px;
 }
 
 .practice-label {
@@ -150,10 +150,10 @@
 }
 
 .answer-input {
-  min-height: 116px;
+  min-height: 86px;
   font-family: var(--hanzi-font);
-  font-size: 1.55rem;
-  line-height: 1.45;
+  font-size: 1.3rem;
+  line-height: 1.35;
   transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -170,8 +170,8 @@
 }
 
 .check-result {
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 8px 10px;
   font-weight: 850;
   line-height: 1.4;
 }
@@ -189,12 +189,12 @@
 .answer-review {
   white-space: pre-line;
   border: 1px solid rgba(220, 38, 38, 0.22);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
-  padding: 12px;
+  padding: 10px;
   font-family: var(--hanzi-font);
-  font-size: 1.35rem;
-  line-height: 1.45;
+  font-size: 1.18rem;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
