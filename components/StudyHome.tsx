@@ -271,7 +271,7 @@ export default function StudyHome() {
         <div className="ready-card card">
           <div className="learn-mark">学</div>
           <h1>Sẵn sàng học?</h1>
-          <button className="button full-width" type="button" onClick={() => pickNext()} disabled={loading}>
+          <button className="button full-width" type="button" onClick={() => pickNext({ countCreateClick: true })} disabled={loading}>
             {loading ? "Đang tạo..." : "Tạo"}
           </button>
         </div>
