@@ -16,9 +16,9 @@ export default async function AppFrame({ children }: { children: React.ReactNode
     <>
       <ClearDeprecatedLocalItems />
       <header className="top-header">
-        <Link href="/" className="brand" aria-label="Hán Ngữ">
+        <Link href="/" className="brand" aria-label="Hán Ngữ HPC">
           <span className="brand-mark">汉</span>
-          <span>Hán Ngữ</span>
+          <span>Hán Ngữ HPC</span>
         </Link>
         <SignOutButton />
       </header>

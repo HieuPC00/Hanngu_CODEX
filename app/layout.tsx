@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Hán Ngữ",
+  title: "Hán Ngữ HPC",
   description: "Học tiếng Trung từ ảnh bằng AI, pinyin và flashcard.",
   manifest: "/manifest.webmanifest"
 };

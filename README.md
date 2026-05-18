@@ -1,4 +1,4 @@
-# Hán Ngữ
+# Hán Ngữ HPC
 
 Mobile-first PWA for learning Chinese from uploaded images.
 

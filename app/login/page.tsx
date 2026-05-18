@@ -37,7 +37,7 @@ export default function LoginPage() {
     <main className="login-page">
       <section className="login-card">
         <div className="login-logo">汉</div>
-        <h1>Hán Ngữ</h1>
+        <h1>Hán Ngữ HPC</h1>
         <p>Nhập mã học chung để vào app. Mã này mở cùng một kho dữ liệu đã lưu.</p>
         <form className="email-login-form" onSubmit={signInWithCode}>
           <label htmlFor="access-code">Mã học</label>
