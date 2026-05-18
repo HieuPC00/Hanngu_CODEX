@@ -19,8 +19,8 @@
 }
 
 .difficulty-filter-button.active {
-  border-color: rgba(220, 38, 38, 0.28);
-  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+  background: rgba(37, 99, 235, 0.08);
   color: var(--red);
 }
 
@@ -195,7 +195,7 @@
 
 .check-result.wrong {
   background: rgba(220, 38, 38, 0.08);
-  color: var(--red);
+  color: var(--danger);
 }
 
 .answer-review {
@@ -213,5 +213,5 @@
 .wrong-char {
   border-radius: 5px;
   background: rgba(220, 38, 38, 0.16);
-  color: var(--red);
+  color: var(--danger);
 }

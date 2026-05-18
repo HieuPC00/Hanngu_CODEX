@@ -4,8 +4,8 @@
   "description": "Học tiếng Trung từ ảnh, câu, hội thoại và từ vựng.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#fff8f7",
-  "theme_color": "#dc2626",
+  "background_color": "#f7fbff",
+  "theme_color": "#2563eb",
   "lang": "vi",
   "icons": [
     {

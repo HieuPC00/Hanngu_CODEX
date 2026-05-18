@@ -3,7 +3,7 @@
   place-items: center;
   min-height: 100vh;
   padding: 24px;
-  background: linear-gradient(145deg, #fff8f7, #fef2f2);
+  background: linear-gradient(145deg, #f7fbff, #eff6ff);
 }
 
 .login-card {
@@ -80,7 +80,7 @@
 }
 
 .login-error {
-  color: var(--red);
+  color: var(--danger);
   font-weight: 800;
 }
 

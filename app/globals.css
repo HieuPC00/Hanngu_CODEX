@@ -1,14 +1,15 @@
 :root {
-  --bg: #fff8f7;
+  --bg: #f7fbff;
   --surface: #ffffff;
   --ink: #1f1f1f;
   --muted: #6b7280;
-  --line: #f0d8d5;
-  --red: #dc2626;
-  --red-dark: #b91c1c;
+  --line: #d6e3f3;
+  --red: #2563eb;
+  --red-dark: #1d4ed8;
+  --danger: #dc2626;
   --green: #16a34a;
-  --soft: #fef2f2;
-  --shadow: 0 16px 45px rgba(127, 29, 29, 0.08);
+  --soft: #eff6ff;
+  --shadow: 0 16px 45px rgba(30, 64, 175, 0.08);
   --hanzi-font: "Kaiti SC", "STKaiti", "KaiTi", "BiauKai", serif;
 }
 
@@ -62,7 +63,7 @@ a {
   height: 52px;
   padding: 0 max(10px, calc((100vw - 760px) / 2 + 10px));
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 248, 247, 0.92);
+  background: rgba(247, 251, 255, 0.92);
   backdrop-filter: blur(12px);
 }
 
@@ -96,7 +97,7 @@ a {
   margin: 0 auto;
   padding: 8px 10px max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
-  background: rgba(255, 248, 247, 0.95);
+  background: rgba(247, 251, 255, 0.95);
   backdrop-filter: blur(12px);
 }
 
