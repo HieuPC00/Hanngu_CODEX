@@ -212,7 +212,14 @@ export default function StudyHome() {
   }
 
   function updateAnswer(nextAnswer: string) {
+    if (checkState === "correct") return;
+
     setAnswer(nextAnswer);
+    if (item && compareChineseAnswer(item.hanzi, nextAnswer).correct) {
+      markAnswerCorrect();
+      return;
+    }
+
     if (checkState !== "idle") {
       setCheckState("idle");
       setFeedbackText("");
@@ -225,15 +232,19 @@ export default function StudyHome() {
     const result = compareChineseAnswer(item.hanzi, answer);
 
     if (result.correct) {
-      setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
-      setCheckState("correct");
-      setFeedbackText(pickRandomMessage(correctMessages));
+      markAnswerCorrect();
       return;
     }
 
     setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
     setCheckState("wrong");
     setFeedbackText(pickRandomMessage(wrongMessages));
+  }
+
+  function markAnswerCorrect() {
+    setVisible((current) => ({ ...current, hanzi: true, pinyin: true }));
+    setCheckState("correct");
+    setFeedbackText(pickRandomMessage(correctMessages));
   }
 
   async function speak() {
@@ -368,6 +379,7 @@ export default function StudyHome() {
               value={answer}
               onChange={(event) => updateAnswer(event.target.value)}
               placeholder="Gõ Hán tự theo nghĩa tiếng Việt..."
+              readOnly={checkState === "correct"}
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
