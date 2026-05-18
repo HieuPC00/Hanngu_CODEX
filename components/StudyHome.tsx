@@ -16,9 +16,12 @@ type VisibleParts = {
 
 type CheckState = "idle" | "correct" | "wrong";
 type DifficultyFilter = "all" | ItemDifficulty;
+type LessonMode = "study" | "review";
 
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
+const lessonSize = 10;
+const lessonCandidateLimit = 60;
 const correctMessages = [
   "Đúng rồi, tiếp tục tiến độ này nhé.",
   "Chuẩn luôn, nhớ bài tốt nha.",
@@ -47,13 +50,17 @@ const preferredVoiceKey = "hanngu-preferred-chinese-voice";
 
 export default function StudyHome() {
   const [count, setCount] = useState<number | null>(null);
-  const [item, setItem] = useState<StudyItem | null>(null);
+  const [lessonItems, setLessonItems] = useState<StudyItem[]>([]);
+  const [lessonIndex, setLessonIndex] = useState(0);
+  const [lessonMode, setLessonMode] = useState<LessonMode>("study");
   const [visible, setVisible] = useState<VisibleParts>(defaultVisible);
   const [loading, setLoading] = useState(false);
   const [answer, setAnswer] = useState("");
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [feedbackText, setFeedbackText] = useState("");
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
+  const lessonComplete = lessonItems.length > 0 && lessonIndex >= lessonItems.length;
+  const item = lessonComplete ? null : lessonItems[lessonIndex] || null;
 
   useEffect(() => {
     if (window.location.hash.includes("error=")) {
@@ -101,18 +108,13 @@ export default function StudyHome() {
 
   function changeDifficultyFilter(nextFilter: DifficultyFilter) {
     setDifficultyFilter(nextFilter);
-    setItem(null);
-    resetPractice();
+    resetLesson();
   }
 
-  async function pickNext(options?: { countCreateClick?: boolean }) {
+  async function createLesson() {
     setLoading(true);
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
-
-    if (options?.countCreateClick) {
-      await incrementCreateCount(ownerId);
-    }
 
     let query = supabase
       .from("items")
@@ -121,7 +123,7 @@ export default function StudyHome() {
       .lte("mastery", 5)
       .order("shown_count", { ascending: true })
       .order("last_shown_at", { ascending: true, nullsFirst: true })
-      .limit(1);
+      .limit(lessonCandidateLimit);
 
     if (difficultyFilter !== "all") {
       query = query.eq("difficulty", difficultyFilter);
@@ -129,46 +131,72 @@ export default function StudyHome() {
 
     const { data, error } = await query;
 
-    setLoading(false);
     if (error) {
+      setLoading(false);
       alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
       return;
     }
 
-    const next = Array.isArray(data) ? (data[0] as StudyItem | undefined) : undefined;
-    if (!next) {
-      setItem(null);
+    const candidates = Array.isArray(data) ? (data as StudyItem[]) : [];
+    const selectedItems = selectLessonItems(candidates, lessonSize);
+    if (!selectedItems.length) {
+      setLoading(false);
+      resetLesson();
       resetPractice();
       alert(difficultyFilter === "all" ? "Chưa có mục học phù hợp." : `Chưa có mục ${labelDifficulty(difficultyFilter)} để học.`);
       return;
     }
 
     const now = new Date().toISOString();
-    const fallbackItem: StudyItem = {
-      ...next,
-      shown_count: next.shown_count + 1,
-      last_shown_at: now
-    };
-    const { data: updated, error: updateError } = await supabase
-      .from("items")
-      .update({
-        shown_count: next.shown_count + 1,
-        last_shown_at: now
+    const updatedItems = await Promise.all(
+      selectedItems.map(async (selectedItem) => {
+        const fallbackItem: StudyItem = {
+          ...selectedItem,
+          shown_count: selectedItem.shown_count + 1,
+          last_shown_at: now
+        };
+        const { data: updated } = await supabase
+          .from("items")
+          .update({
+            shown_count: selectedItem.shown_count + 1,
+            last_shown_at: now
+          })
+          .eq("id", selectedItem.id)
+          .eq("user_id", ownerId)
+          .select(itemColumns)
+          .single();
+
+        return (updated as StudyItem) || fallbackItem;
       })
-      .eq("id", next.id)
-      .eq("user_id", ownerId)
-      .select(itemColumns)
-      .single();
+    );
 
-    if (updateError) {
-      setItem(fallbackItem);
-      resetPractice();
-      return;
-    }
-
-    setItem((updated as StudyItem) || fallbackItem);
+    await incrementCreateCount(ownerId);
+    setLessonItems(updatedItems);
+    setLessonIndex(0);
+    setLessonMode("study");
+    setLoading(false);
     resetPractice();
     refreshCount();
+  }
+
+  function nextLessonItem() {
+    if (!lessonItems.length) return;
+    setLessonIndex((current) => Math.min(current + 1, lessonItems.length));
+    resetPractice();
+  }
+
+  function reviewLesson() {
+    if (!lessonItems.length) return;
+    setLessonMode("review");
+    setLessonIndex(0);
+    resetPractice();
+  }
+
+  function resetLesson() {
+    setLessonItems([]);
+    setLessonIndex(0);
+    setLessonMode("study");
+    resetPractice();
   }
 
   async function incrementCreateCount(ownerId: string) {
@@ -268,18 +296,37 @@ export default function StudyHome() {
       <DifficultyFilterControl value={difficultyFilter} onChange={changeDifficultyFilter} />
 
       {!item ? (
-        <div className="ready-card card">
-          <div className="learn-mark">学</div>
-          <h1>Sẵn sàng học?</h1>
-          <button className="button full-width" type="button" onClick={() => pickNext({ countCreateClick: true })} disabled={loading}>
-            {loading ? "Đang tạo..." : "Tạo"}
-          </button>
-        </div>
+        lessonComplete ? (
+          <div className="lesson-complete card">
+            <div className="learn-mark">学</div>
+            <h1>Đã xong bài học</h1>
+            <p className="muted">
+              Bạn vừa học {lessonItems.length} mục. Có thể ôn lại bài này hoặc tạo bài học mới.
+            </p>
+            <button className="button full-width" type="button" onClick={reviewLesson}>
+              Ôn lại {lessonItems.length} mục vừa học
+            </button>
+            <button className="ghost-button full-width" type="button" onClick={createLesson} disabled={loading}>
+              {loading ? "Đang tạo..." : "Tạo bài học mới"}
+            </button>
+          </div>
+        ) : (
+          <div className="ready-card card">
+            <div className="learn-mark">学</div>
+            <h1>Sẵn sàng học?</h1>
+            <p className="muted">Tạo 1 bài học gồm 10 mục theo mức độ đang chọn.</p>
+            <button className="button full-width" type="button" onClick={createLesson} disabled={loading}>
+              {loading ? "Đang tạo..." : "Tạo bài học"}
+            </button>
+          </div>
+        )
       ) : (
         <>
           <article className="flashcard card">
             <header className="flashcard-head">
               <span>
+                {lessonMode === "review" ? "Ôn lại" : "Bài học"} {lessonIndex + 1}/{lessonItems.length}
+                {" · "}
                 {labelType(item.type)} · Đã hiện {item.shown_count}×
                 {" · "}
                 {labelDifficulty(item.difficulty)}
@@ -343,8 +390,8 @@ export default function StudyHome() {
             </button>
           </section>
 
-          <button className="ghost-button full-width" type="button" onClick={() => pickNext({ countCreateClick: true })}>
-            Tạo câu khác
+          <button className="ghost-button full-width" type="button" onClick={nextLessonItem}>
+            {lessonIndex + 1 >= lessonItems.length ? "Hoàn thành bài học" : "Mục tiếp theo"}
           </button>
         </>
       )}
@@ -384,6 +431,47 @@ function labelType(type: StudyItem["type"]) {
 
 function pickRandomMessage(messages: string[]) {
   return messages[Math.floor(Math.random() * messages.length)] || "";
+}
+
+function selectLessonItems(candidates: StudyItem[], size: number) {
+  const remaining = [...candidates].sort(compareStudyPriority);
+  const selected: StudyItem[] = [];
+
+  while (remaining.length && selected.length < size) {
+    const bestShownCount = remaining[0].shown_count;
+    const sameShown = remaining.filter((candidate) => candidate.shown_count === bestShownCount).sort(compareLastShownAt);
+    const needed = size - selected.length;
+    const poolSize = Math.min(sameShown.length, Math.max(needed, needed * 3));
+    const picked = shuffleItems(sameShown.slice(0, poolSize)).slice(0, needed);
+    const pickedIds = new Set(picked.map((candidate) => candidate.id));
+
+    selected.push(...picked);
+
+    for (let index = remaining.length - 1; index >= 0; index -= 1) {
+      if (pickedIds.has(remaining[index].id)) remaining.splice(index, 1);
+    }
+  }
+
+  return selected;
+}
+
+function compareStudyPriority(left: StudyItem, right: StudyItem) {
+  return left.shown_count - right.shown_count || compareLastShownAt(left, right);
+}
+
+function compareLastShownAt(left: StudyItem, right: StudyItem) {
+  const leftTime = left.last_shown_at ? new Date(left.last_shown_at).getTime() : 0;
+  const rightTime = right.last_shown_at ? new Date(right.last_shown_at).getTime() : 0;
+  return leftTime - rightTime;
+}
+
+function shuffleItems(items: StudyItem[]) {
+  const next = [...items];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
 }
 
 function hanziSizeClass(text: string) {

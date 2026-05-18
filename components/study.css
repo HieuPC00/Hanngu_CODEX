@@ -33,6 +33,14 @@
   text-align: center;
 }
 
+.lesson-complete {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  padding: 18px;
+  text-align: center;
+}
+
 .learn-mark {
   display: grid;
   place-items: center;
