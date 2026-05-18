@@ -4,7 +4,14 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Hán Ngữ HPC",
   description: "Học tiếng Trung từ ảnh bằng AI, pinyin và flashcard.",
-  manifest: "/manifest.webmanifest"
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" }
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }]
+  }
 };
 
 export const viewport: Viewport = {
