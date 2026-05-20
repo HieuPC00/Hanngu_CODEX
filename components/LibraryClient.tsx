@@ -302,7 +302,6 @@ export default function LibraryClient() {
       <div className="library-head">
         <div>
           <h1 className="page-title">Thư viện</h1>
-          <p className="page-subtitle">Toàn bộ dữ liệu học đã lưu trong Supabase.</p>
         </div>
         <button className="button manual-open-button" type="button" onClick={openManualForm}>
           Thêm thủ công

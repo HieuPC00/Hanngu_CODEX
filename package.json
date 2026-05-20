@@ -12,6 +12,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.49.4",
+    "hanzi-writer": "^3.7.3",
     "next": "^15.3.2",
     "pg": "^8.20.0",
     "react": "^19.0.0",

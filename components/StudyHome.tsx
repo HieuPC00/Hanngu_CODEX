@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
+import { GAME_LESSON_STORAGE_KEY, parseGameLessonItems } from "@/lib/game-lesson";
 import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivation";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import type { ItemDifficulty, StudyItem } from "@/lib/types";
@@ -46,6 +47,7 @@ export default function StudyHome() {
 
     localStorage.removeItem("hanngu-visible-parts");
     refreshCount();
+    createPendingGameLesson();
   }, []);
 
   useEffect(() => {
@@ -124,6 +126,57 @@ export default function StudyHome() {
       return;
     }
 
+    const updatedItems = await createLessonFromItems(selectedItems, ownerId);
+    if (!updatedItems.length) {
+      setLoading(false);
+      alert("Không tạo được bài học. Hãy thử lại.");
+      return;
+    }
+
+    setLessonIndex(0);
+    setLessonMode("study");
+    setLoading(false);
+    resetPractice();
+    refreshCount();
+  }
+
+  async function createPendingGameLesson() {
+    const pendingItems = parseGameLessonItems(sessionStorage.getItem(GAME_LESSON_STORAGE_KEY));
+    if (!pendingItems.length) return;
+
+    sessionStorage.removeItem(GAME_LESSON_STORAGE_KEY);
+    setLoading(true);
+
+    const ownerId = getBrowserOwnerId();
+    const supabase = createClient();
+    const ids = pendingItems.map((pendingItem) => pendingItem.id);
+    const { data, error } = await supabase.from("items").select(itemColumns).eq("user_id", ownerId).in("id", ids);
+
+    if (error) {
+      setLoading(false);
+      alert("Không tạo được bài học từ game. Hãy thử lại.");
+      return;
+    }
+
+    const itemsById = new Map(((data || []) as StudyItem[]).map((studyItem) => [studyItem.id, studyItem]));
+    const orderedItems = ids.flatMap((id) => {
+      const found = itemsById.get(id);
+      return found ? [found] : [];
+    });
+    const updatedItems = await createLessonFromItems(orderedItems, ownerId);
+
+    setLessonItems(updatedItems);
+    setLessonIndex(0);
+    setLessonMode("study");
+    setLoading(false);
+    resetPractice();
+    refreshCount();
+  }
+
+  async function createLessonFromItems(selectedItems: StudyItem[], ownerId: string) {
+    if (!selectedItems.length) return [];
+
+    const supabase = createClient();
     const now = new Date().toISOString();
     const updatedItems = await Promise.all(
       selectedItems.map(async (selectedItem) => {
@@ -149,11 +202,7 @@ export default function StudyHome() {
 
     await incrementCreateCount(ownerId);
     setLessonItems(updatedItems);
-    setLessonIndex(0);
-    setLessonMode("study");
-    setLoading(false);
-    resetPractice();
-    refreshCount();
+    return updatedItems;
   }
 
   function nextLessonItem() {
