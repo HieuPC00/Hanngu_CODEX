@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
+import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivation";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import type { ItemDifficulty, StudyItem } from "@/lib/types";
 import "./study.css";
@@ -22,30 +23,6 @@ const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: tru
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 const lessonSize = 10;
 const lessonCandidateLimit = 60;
-const correctMessages = [
-  "Đúng rồi, tiếp tục tiến độ này nhé.",
-  "Chuẩn luôn, nhớ bài tốt nha.",
-  "Tốt lắm, qua câu tiếp theo thôi.",
-  'Hay, "ngấm" vào đầu rồi nha.',
-  "Đúng rồi, phản xạ bắt đầu nhanh hơn rồi á.",
-  "Chuẩn, câu này coi như nằm lòng rồi hen.",
-  "Chính xác! Thêm câu nữa cho nóng.",
-  "Đều tay thế này thì kiểu gì cũng giỏi.",
-  "Ngon lành, cứ đi hướng này là chuẩn bài.",
-  "Ngon lành, củng cố thêm câu nữa đi."
-];
-const wrongMessages = [
-  "Chưa chuẩn rồi, nhìn kỹ lại mặt chữ một chút nhé.",
-  "Sai chút thôi, sửa lại phát là nhớ ngay.",
-  "Hình như chưa khớp lắm, bình tĩnh coi lại xem sao.",
-  'Đang đoạn "nạp" kiến thức nên nhầm tí không sao, thử lại nào.',
-  "Lỗi này mới giúp mình nhớ lâu, làm lại nhé.",
-  "Suýt soát rồi! Kiểm tra lại thứ tự chữ một tẹo thôi.",
-  "Chưa chuẩn lắm, đọc kỹ rồi gõ chậm lại chút xem.",
-  "Sai là chuyện bình thường, sửa xong là tiến bộ thôi.",
-  'Câu này hơi "khoai", thử lại lượt nữa cho chắc tay nào.',
-  "Chưa đúng roài, tập trung và làm lại nha."
-];
 const preferredVoiceKey = "hanngu-preferred-chinese-voice";
 
 export default function StudyHome() {
@@ -439,10 +416,6 @@ function labelType(type: StudyItem["type"]) {
   if (type === "dialogue") return "Hội thoại";
   if (type === "word") return "Từ vựng";
   return "Câu";
-}
-
-function pickRandomMessage(messages: string[]) {
-  return messages[Math.floor(Math.random() * messages.length)] || "";
 }
 
 function selectLessonItems(candidates: StudyItem[], size: number) {
