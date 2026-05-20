@@ -33,7 +33,8 @@ type GameQuestion = {
 type HanziWriterInstance = {
   quiz: (options?: Record<string, unknown>) => Promise<unknown>;
   cancelQuiz: () => void;
-  animateCharacter: () => Promise<unknown>;
+  showOutline: (options?: Record<string, unknown>) => Promise<unknown> | void;
+  hideOutline: (options?: Record<string, unknown>) => Promise<unknown> | void;
 };
 
 const gameSize = 10;
@@ -45,6 +46,7 @@ export default function GameClient() {
   const router = useRouter();
   const writerTargetRef = useRef<HTMLDivElement | null>(null);
   const writerRef = useRef<HanziWriterInstance | null>(null);
+  const showStrokeGuideRef = useRef(false);
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [gameMode, setGameMode] = useState<GameMode>("choice");
   const [status, setStatus] = useState<GameStatus>("setup");
@@ -52,6 +54,7 @@ export default function GameClient() {
   const [questions, setQuestions] = useState<GameQuestion[]>([]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [showWritePinyin, setShowWritePinyin] = useState(false);
+  const [showStrokeGuide, setShowStrokeGuide] = useState(false);
   const [writeCharIndex, setWriteCharIndex] = useState(0);
   const [revealedCharCount, setRevealedCharCount] = useState(0);
   const [currentCharComplete, setCurrentCharComplete] = useState(false);
@@ -91,7 +94,7 @@ export default function GameClient() {
           height: writerSize,
           padding: 12,
           showCharacter: false,
-          showOutline: true,
+          showOutline: showStrokeGuideRef.current,
           strokeColor: "#1f2937",
           outlineColor: "#d6e3f3",
           drawingColor: "#2563eb",
@@ -99,7 +102,7 @@ export default function GameClient() {
           highlightCompleteColor: "#16a34a",
           drawingWidth: 18,
           strokeWidth: 2,
-          showHintAfterMisses: 2,
+          showHintAfterMisses: false,
           onLoadCharDataSuccess: () => {
             if (canceled) return;
             setWriteStatus("idle");
@@ -115,7 +118,7 @@ export default function GameClient() {
         writerRef.current = writer;
         writer.quiz({
           leniency: 1.08,
-          showHintAfterMisses: 2,
+          showHintAfterMisses: false,
           highlightOnComplete: true,
           acceptBackwardsStrokes: false,
           markStrokeCorrectAfterMisses: false,
@@ -284,30 +287,21 @@ export default function GameClient() {
     }, 560);
   }
 
-  async function showStrokeHint() {
-    if (!writerRef.current) return;
-    try {
-      await writerRef.current.animateCharacter();
-      await writerRef.current.quiz({
-        leniency: 1.08,
-        showHintAfterMisses: 2,
-        highlightOnComplete: true,
-        acceptBackwardsStrokes: false,
-        markStrokeCorrectAfterMisses: false,
-        onMistake: () => {
-          setWriteHadMistake(true);
-          setWriteStatus("wrong");
-          setWriteFeedback(pickRandomMessage(wrongMessages));
-        },
-        onComplete: () => {
-          setCurrentCharComplete(true);
-          setWriteStatus("ready");
-          setWriteFeedback("Đã viết đủ nét. Bấm Kiểm tra để đưa chữ lên khung.");
-        }
-      });
-    } catch {
-      setWriteFeedback("Chưa hiện được gợi ý nét.");
-    }
+  function toggleStrokeGuide() {
+    setShowStrokeGuide((current) => {
+      const next = !current;
+      showStrokeGuideRef.current = next;
+
+      const writer = writerRef.current;
+      if (writer) {
+        const action = next ? writer.showOutline({ duration: 150 }) : writer.hideOutline({ duration: 150 });
+        Promise.resolve(action).catch(() => {
+          setWriteFeedback("Chưa đổi được trạng thái gợi ý nét.");
+        });
+      }
+
+      return next;
+    });
   }
 
   function goNext() {
@@ -339,6 +333,8 @@ export default function GameClient() {
 
   function resetWriteProgress() {
     setShowWritePinyin(false);
+    setShowStrokeGuide(false);
+    showStrokeGuideRef.current = false;
     setWriteCharIndex(0);
     setRevealedCharCount(0);
     setCurrentCharComplete(false);
@@ -494,11 +490,13 @@ export default function GameClient() {
         />
 
         <article className={`game-card write-card card ${writeAnswered ? (currentQuestion.wasCorrect ? "is-correct" : "is-wrong") : ""}`}>
-          <div className="game-card-label">Nhìn nghĩa, viết đúng từng chữ Hán</div>
+          <div className="write-card-head">
+            <div className="game-card-label">Nhìn nghĩa, viết đúng từng chữ Hán</div>
+            <button className={showWritePinyin ? "toggle-mini active" : "toggle-mini"} type="button" onClick={() => setShowWritePinyin((current) => !current)}>
+              {showWritePinyin ? "Ẩn Pinyin" : "Hiện Pinyin"}
+            </button>
+          </div>
           <div className="write-meaning">{currentQuestion.item.meaning}</div>
-          <button className={showWritePinyin ? "toggle-mini active" : "toggle-mini"} type="button" onClick={() => setShowWritePinyin((current) => !current)}>
-            {showWritePinyin ? "Ẩn Pinyin" : "Hiện Pinyin"}
-          </button>
           {showWritePinyin ? <div className="write-pinyin">{currentQuestion.item.pinyin}</div> : null}
           <div className="hanzi-slots" aria-label="Khung Hán tự">
             {writeChars.map((char, index) => (
@@ -520,8 +518,8 @@ export default function GameClient() {
               <strong>
                 Chữ {Math.min(writeCharIndex + 1, writeChars.length)}/{writeChars.length}
               </strong>
-              <button className="ghost-button hint-button" type="button" onClick={showStrokeHint}>
-                Gợi ý nét
+              <button className={showStrokeGuide ? "ghost-button hint-button active" : "ghost-button hint-button"} type="button" onClick={toggleStrokeGuide}>
+                {showStrokeGuide ? "Ẩn gợi ý nét" : "Hiện gợi ý nét"}
               </button>
             </div>
             <div className="writer-target" ref={writerTargetRef} />

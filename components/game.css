@@ -147,6 +147,13 @@
   min-height: 0;
 }
 
+.write-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .write-meaning {
   color: #374151;
   font-size: 1.1rem;
@@ -164,6 +171,7 @@
 
 .toggle-mini {
   justify-self: start;
+  flex: 0 0 auto;
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -329,6 +337,12 @@
   border-radius: 999px;
   padding: 0 10px;
   font-size: 0.85rem;
+}
+
+.hint-button.active {
+  border-color: rgba(37, 99, 235, 0.38);
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--red);
 }
 
 .writer-target {
