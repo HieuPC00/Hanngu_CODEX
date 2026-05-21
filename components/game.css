@@ -346,10 +346,12 @@
 }
 
 .writer-target {
+  position: relative;
   justify-self: center;
   width: 220px;
   height: 220px;
   touch-action: none;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 16px;
   background:
@@ -358,9 +360,51 @@
     #fff;
 }
 
-.writer-target svg {
+.writer-outline,
+.writer-canvas {
+  position: absolute;
+  inset: 0;
+  width: 220px;
+  height: 220px;
+}
+
+.writer-outline {
+  z-index: 1;
+  pointer-events: none;
+}
+
+.writer-outline svg {
   display: block;
   border-radius: 16px;
+  pointer-events: none;
+}
+
+.writer-canvas {
+  z-index: 2;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.writer-actions {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.rewrite-button {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 0;
+  color: var(--red);
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.writer-check-button {
+  min-height: 44px;
+  border-radius: 12px;
 }
 
 .flying-char {

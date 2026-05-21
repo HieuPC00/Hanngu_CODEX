@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useRouter } from "next/navigation";
 import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
 import { GAME_LESSON_STORAGE_KEY, serializeGameLessonItems } from "@/lib/game-lesson";
@@ -35,21 +35,32 @@ type HanziWriterInstance = {
   cancelQuiz: () => void;
   showOutline: (options?: Record<string, unknown>) => Promise<unknown> | void;
   hideOutline: (options?: Record<string, unknown>) => Promise<unknown> | void;
+  getCharacterData: () => Promise<{ strokes: Array<{ points: Point[] }> }>;
+};
+
+type Point = {
+  x: number;
+  y: number;
 };
 
 const gameSize = 10;
 const candidateLimit = 160;
 const writerSize = 220;
+const handwritingMatchThreshold = 0.16;
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 
 export default function GameClient() {
   const router = useRouter();
   const writerTargetRef = useRef<HTMLDivElement | null>(null);
+  const writerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const writerRef = useRef<HanziWriterInstance | null>(null);
   const showStrokeGuideRef = useRef(false);
   const writeHadMistakeRef = useRef(false);
   const advancingCharRef = useRef(false);
   const charAdvanceTimerRef = useRef<number | null>(null);
+  const freehandStrokesRef = useRef<Point[][]>([]);
+  const activeFreehandStrokeRef = useRef<Point[] | null>(null);
+  const targetStrokePointsRef = useRef<Point[][]>([]);
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [gameMode, setGameMode] = useState<GameMode>("choice");
   const [status, setStatus] = useState<GameStatus>("setup");
@@ -63,6 +74,7 @@ export default function GameClient() {
   const [writeStatus, setWriteStatus] = useState<WriteStatus>("idle");
   const [writeFeedback, setWriteFeedback] = useState("");
   const [flyingChar, setFlyingChar] = useState<{ char: string; key: number } | null>(null);
+  const [hasFreehandDrawing, setHasFreehandDrawing] = useState(false);
 
   const currentQuestion = status === "playing" ? questions[questionIndex] || null : null;
   const writeChars = useMemo(() => collectChineseChars(currentQuestion?.item.hanzi || ""), [currentQuestion?.item.hanzi]);
@@ -79,9 +91,13 @@ export default function GameClient() {
 
     let canceled = false;
     const target = writerTargetRef.current;
-    if (!target) return;
+    const canvas = writerCanvasRef.current;
+    if (!target || !canvas) return;
 
     target.innerHTML = "";
+    prepareFreehandCanvas(canvas);
+    clearFreehandCanvas(false);
+    targetStrokePointsRef.current = [];
     advancingCharRef.current = false;
     setWriteStatus("loading");
     setWriteFeedback("Đang tải khung viết...");
@@ -104,11 +120,6 @@ export default function GameClient() {
           drawingWidth: 18,
           strokeWidth: 2,
           showHintAfterMisses: false,
-          onLoadCharDataSuccess: () => {
-            if (canceled) return;
-            setWriteStatus("idle");
-            setWriteFeedback("");
-          },
           onLoadCharDataError: () => {
             if (canceled) return;
             setWriteStatus("error");
@@ -117,22 +128,11 @@ export default function GameClient() {
         }) as HanziWriterInstance;
 
         writerRef.current = writer;
-        writer.quiz({
-          leniency: 1.3,
-          showHintAfterMisses: false,
-          highlightOnComplete: true,
-          acceptBackwardsStrokes: true,
-          markStrokeCorrectAfterMisses: 3,
-          onMistake: () => {
-            if (canceled) return;
-            writeHadMistakeRef.current = true;
-            setWriteStatus("wrong");
-            setWriteFeedback(pickRandomMessage(wrongMessages));
-          },
-          onComplete: () => {
-            if (canceled) return;
-            completeWrittenChar();
-          }
+        writer.getCharacterData().then((characterData) => {
+          if (canceled) return;
+          targetStrokePointsRef.current = characterData.strokes.map((stroke) => stroke.points);
+          setWriteStatus("idle");
+          setWriteFeedback("");
         });
       })
       .catch(() => {
@@ -146,6 +146,7 @@ export default function GameClient() {
       writerRef.current?.cancelQuiz();
       writerRef.current = null;
       target.innerHTML = "";
+      clearFreehandCanvas(false);
     };
   }, [status, gameMode, currentQuestion?.item.id, currentWriteChar, writeCharIndex, writeAnswered]);
 
@@ -241,6 +242,7 @@ export default function GameClient() {
     advancingCharRef.current = true;
     const nextCount = writeCharIndex + 1;
     const wordComplete = nextCount >= writeChars.length;
+    clearFreehandCanvas(false);
     setFlyingChar({ char: currentWriteChar, key: Date.now() });
     setWriteStatus("correct");
     setWriteFeedback(wordComplete ? "Đã viết đủ từ này." : "Đúng chữ này, tự sang chữ tiếp theo.");
@@ -281,6 +283,27 @@ export default function GameClient() {
       setWriteFeedback("");
       advancingCharRef.current = false;
     }, 560);
+  }
+
+  function checkWrittenChar() {
+    if (!currentQuestion || writeAnswered || !currentWriteChar || advancingCharRef.current) return;
+
+    const strokes = freehandStrokesRef.current.filter((stroke) => stroke.length > 1);
+    if (!hasFreehandDrawing || !strokes.length) {
+      setWriteStatus("wrong");
+      setWriteFeedback("Bạn viết thử chữ này trước rồi hãy kiểm tra.");
+      return;
+    }
+
+    const score = scoreFreehandWriting(strokes, targetStrokePointsRef.current);
+    if (Number.isFinite(score) && score <= handwritingMatchThreshold) {
+      completeWrittenChar();
+      return;
+    }
+
+    writeHadMistakeRef.current = true;
+    setWriteStatus("wrong");
+    setWriteFeedback(pickRandomMessage(wrongMessages));
   }
 
   function toggleStrokeGuide() {
@@ -351,11 +374,107 @@ export default function GameClient() {
     showStrokeGuideRef.current = false;
     writeHadMistakeRef.current = false;
     advancingCharRef.current = false;
+    targetStrokePointsRef.current = [];
+    clearFreehandCanvas(false);
     setWriteCharIndex(0);
     setRevealedCharCount(0);
     setWriteStatus("idle");
     setWriteFeedback("");
     setFlyingChar(null);
+  }
+
+  function prepareFreehandCanvas(canvas: HTMLCanvasElement) {
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = writerSize * ratio;
+    canvas.height = writerSize * ratio;
+    canvas.style.width = `${writerSize}px`;
+    canvas.style.height = `${writerSize}px`;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, writerSize, writerSize);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.lineWidth = 18;
+    context.strokeStyle = "#1f2937";
+  }
+
+  function clearFreehandCanvas(resetFeedback = true) {
+    freehandStrokesRef.current = [];
+    activeFreehandStrokeRef.current = null;
+    setHasFreehandDrawing(false);
+
+    const canvas = writerCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, writerSize, writerSize);
+    }
+
+    if (resetFeedback) {
+      setWriteStatus("idle");
+      setWriteFeedback("");
+    }
+  }
+
+  function beginFreehandStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (writeAnswered || advancingCharRef.current || writeStatus === "loading" || writeStatus === "error") return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const point = getCanvasPoint(event);
+    const stroke = [point];
+    activeFreehandStrokeRef.current = stroke;
+    freehandStrokesRef.current = [...freehandStrokesRef.current, stroke];
+    setHasFreehandDrawing(true);
+    setWriteStatus("idle");
+    setWriteFeedback("");
+    drawFreehandDot(point);
+  }
+
+  function moveFreehandStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const stroke = activeFreehandStrokeRef.current;
+    if (!stroke) return;
+
+    event.preventDefault();
+    const point = getCanvasPoint(event);
+    const previousPoint = stroke[stroke.length - 1];
+    stroke.push(point);
+    drawFreehandLine(previousPoint, point);
+  }
+
+  function endFreehandStroke(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!activeFreehandStrokeRef.current) return;
+    event.preventDefault();
+    activeFreehandStrokeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function getCanvasPoint(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: clamp(event.clientX - rect.left, 0, writerSize),
+      y: clamp(event.clientY - rect.top, 0, writerSize)
+    };
+  }
+
+  function drawFreehandDot(point: Point) {
+    const context = writerCanvasRef.current?.getContext("2d");
+    if (!context) return;
+    context.beginPath();
+    context.arc(point.x, point.y, 9, 0, Math.PI * 2);
+    context.fillStyle = "#1f2937";
+    context.fill();
+  }
+
+  function drawFreehandLine(from: Point, to: Point) {
+    const context = writerCanvasRef.current?.getContext("2d");
+    if (!context) return;
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
   }
 
   if (status === "finished") {
@@ -536,7 +655,27 @@ export default function GameClient() {
                 {showStrokeGuide ? "Ẩn gợi ý nét" : "Hiện gợi ý nét"}
               </button>
             </div>
-            <div className="writer-target" ref={writerTargetRef} />
+            <div className="writer-target">
+              <div className="writer-outline" ref={writerTargetRef} />
+              <canvas
+                aria-label="Khung viết Hán tự"
+                className="writer-canvas"
+                ref={writerCanvasRef}
+                onPointerDown={beginFreehandStroke}
+                onPointerMove={moveFreehandStroke}
+                onPointerUp={endFreehandStroke}
+                onPointerCancel={endFreehandStroke}
+                onPointerLeave={endFreehandStroke}
+              />
+            </div>
+            <div className="writer-actions">
+              <button className="ghost-button rewrite-button" type="button" onClick={() => clearFreehandCanvas()} aria-label="Xóa nét và viết lại">
+                ↻
+              </button>
+              <button className="button writer-check-button" type="button" onClick={checkWrittenChar} disabled={writeStatus === "loading" || writeStatus === "error"}>
+                Kiểm tra
+              </button>
+            </div>
             {writeFeedback ? <div className={`game-feedback ${writeStatus === "wrong" || writeStatus === "error" ? "wrong" : "correct"}`}>{writeFeedback}</div> : null}
           </section>
         ) : (
@@ -744,6 +883,113 @@ function countChineseChars(text: string) {
 
 function compactLength(text?: string | null) {
   return (text || "").replace(/\s+/g, "").length;
+}
+
+function scoreFreehandWriting(userStrokes: Point[][], targetStrokes: Point[][]) {
+  if (!userStrokes.length || !targetStrokes.length) return Number.POSITIVE_INFINITY;
+
+  const userPoints = normalizePointCloud(densifyPointStrokes(userStrokes, 5));
+  const targetPoints = normalizePointCloud(densifyPointStrokes(targetStrokes.map(toCanvasStroke), 5));
+  if (userPoints.length < 8 || targetPoints.length < 8) return Number.POSITIVE_INFINITY;
+
+  const userToTarget = averageNearestDistance(userPoints, targetPoints);
+  const targetToUser = averageNearestDistance(targetPoints, userPoints);
+  const strokeCountPenalty = Math.min(0.05, Math.abs(userStrokes.length - targetStrokes.length) * 0.006);
+
+  return userToTarget * 0.55 + targetToUser * 0.45 + strokeCountPenalty;
+}
+
+function toCanvasStroke(stroke: Point[]) {
+  return stroke.map(toCanvasPoint);
+}
+
+function toCanvasPoint(point: Point) {
+  const padding = 12;
+  const charMin = { x: 0, y: -124 };
+  const charMax = { x: 1024, y: 900 };
+  const availableWidth = writerSize - padding * 2;
+  const availableHeight = writerSize - padding * 2;
+  const scale = Math.min(availableWidth / (charMax.x - charMin.x), availableHeight / (charMax.y - charMin.y));
+  const xOffset = -charMin.x * scale + padding + (availableWidth - scale * (charMax.x - charMin.x)) / 2;
+  const yOffset = -charMin.y * scale + padding + (availableHeight - scale * (charMax.y - charMin.y)) / 2;
+
+  return {
+    x: point.x * scale + xOffset,
+    y: writerSize - yOffset - point.y * scale
+  };
+}
+
+function densifyPointStrokes(strokes: Point[][], spacing: number) {
+  const result: Point[] = [];
+
+  strokes.forEach((stroke) => {
+    if (!stroke.length) return;
+    result.push(stroke[0]);
+
+    for (let index = 1; index < stroke.length; index += 1) {
+      const start = stroke[index - 1];
+      const end = stroke[index];
+      const distance = pointDistance(start, end);
+      const steps = Math.max(1, Math.ceil(distance / spacing));
+
+      for (let step = 1; step <= steps; step += 1) {
+        const ratio = step / steps;
+        result.push({
+          x: start.x + (end.x - start.x) * ratio,
+          y: start.y + (end.y - start.y) * ratio
+        });
+      }
+    }
+  });
+
+  return result;
+}
+
+function normalizePointCloud(points: Point[]) {
+  if (!points.length) return [];
+
+  const bounds = points.reduce(
+    (current, point) => ({
+      minX: Math.min(current.minX, point.x),
+      minY: Math.min(current.minY, point.y),
+      maxX: Math.max(current.maxX, point.x),
+      maxY: Math.max(current.maxY, point.y)
+    }),
+    { minX: Number.POSITIVE_INFINITY, minY: Number.POSITIVE_INFINITY, maxX: Number.NEGATIVE_INFINITY, maxY: Number.NEGATIVE_INFINITY }
+  );
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const scale = Math.max(width, height, 1);
+  const xPadding = (scale - width) / 2;
+  const yPadding = (scale - height) / 2;
+
+  return points.map((point) => ({
+    x: (point.x - bounds.minX + xPadding) / scale,
+    y: (point.y - bounds.minY + yPadding) / scale
+  }));
+}
+
+function averageNearestDistance(fromPoints: Point[], toPoints: Point[]) {
+  const total = fromPoints.reduce((sum, point) => {
+    let best = Number.POSITIVE_INFINITY;
+
+    for (const candidate of toPoints) {
+      const distance = pointDistance(point, candidate);
+      if (distance < best) best = distance;
+    }
+
+    return sum + best;
+  }, 0);
+
+  return total / fromPoints.length;
+}
+
+function pointDistance(left: Point, right: Point) {
+  return Math.hypot(left.x - right.x, left.y - right.y);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function isChineseChar(char: string) {
