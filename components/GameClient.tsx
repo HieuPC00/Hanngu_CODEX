@@ -47,6 +47,9 @@ export default function GameClient() {
   const writerTargetRef = useRef<HTMLDivElement | null>(null);
   const writerRef = useRef<HanziWriterInstance | null>(null);
   const showStrokeGuideRef = useRef(false);
+  const writeHadMistakeRef = useRef(false);
+  const advancingCharRef = useRef(false);
+  const charAdvanceTimerRef = useRef<number | null>(null);
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [gameMode, setGameMode] = useState<GameMode>("choice");
   const [status, setStatus] = useState<GameStatus>("setup");
@@ -57,8 +60,6 @@ export default function GameClient() {
   const [showStrokeGuide, setShowStrokeGuide] = useState(false);
   const [writeCharIndex, setWriteCharIndex] = useState(0);
   const [revealedCharCount, setRevealedCharCount] = useState(0);
-  const [currentCharComplete, setCurrentCharComplete] = useState(false);
-  const [writeHadMistake, setWriteHadMistake] = useState(false);
   const [writeStatus, setWriteStatus] = useState<WriteStatus>("idle");
   const [writeFeedback, setWriteFeedback] = useState("");
   const [flyingChar, setFlyingChar] = useState<{ char: string; key: number } | null>(null);
@@ -81,7 +82,7 @@ export default function GameClient() {
     if (!target) return;
 
     target.innerHTML = "";
-    setCurrentCharComplete(false);
+    advancingCharRef.current = false;
     setWriteStatus("loading");
     setWriteFeedback("Đang tải khung viết...");
 
@@ -117,22 +118,20 @@ export default function GameClient() {
 
         writerRef.current = writer;
         writer.quiz({
-          leniency: 1.08,
+          leniency: 1.3,
           showHintAfterMisses: false,
           highlightOnComplete: true,
-          acceptBackwardsStrokes: false,
-          markStrokeCorrectAfterMisses: false,
+          acceptBackwardsStrokes: true,
+          markStrokeCorrectAfterMisses: 3,
           onMistake: () => {
             if (canceled) return;
-            setWriteHadMistake(true);
+            writeHadMistakeRef.current = true;
             setWriteStatus("wrong");
             setWriteFeedback(pickRandomMessage(wrongMessages));
           },
           onComplete: () => {
             if (canceled) return;
-            setCurrentCharComplete(true);
-            setWriteStatus("ready");
-            setWriteFeedback("Đã viết đủ nét. Bấm Kiểm tra để đưa chữ lên khung.");
+            completeWrittenChar();
           }
         });
       })
@@ -236,34 +235,30 @@ export default function GameClient() {
     );
   }
 
-  function checkWrittenChar() {
-    if (!currentQuestion || writeAnswered) return;
+  function completeWrittenChar() {
+    if (!currentQuestion || writeAnswered || !currentWriteChar || advancingCharRef.current) return;
 
-    if (writeStatus === "loading") return;
-    if (writeStatus === "error") {
-      setWriteFeedback("Chưa thể kiểm tra vì khung nét chưa tải được.");
-      return;
-    }
-
-    if (!currentCharComplete || !currentWriteChar) {
-      setWriteHadMistake(true);
-      setWriteStatus("wrong");
-      setWriteFeedback(pickRandomMessage(wrongMessages));
-      return;
-    }
-
+    advancingCharRef.current = true;
     const nextCount = writeCharIndex + 1;
     const wordComplete = nextCount >= writeChars.length;
     setFlyingChar({ char: currentWriteChar, key: Date.now() });
     setWriteStatus("correct");
-    setWriteFeedback(wordComplete ? "Đã viết đủ từ này." : "Đúng chữ này, sang chữ tiếp theo.");
+    setWriteFeedback(wordComplete ? "Đã viết đủ từ này." : "Đúng chữ này, tự sang chữ tiếp theo.");
+    setShowStrokeGuide(false);
+    showStrokeGuideRef.current = false;
+    Promise.resolve(writerRef.current?.hideOutline({ duration: 0 })).catch(() => undefined);
 
-    window.setTimeout(() => {
+    if (charAdvanceTimerRef.current) {
+      window.clearTimeout(charAdvanceTimerRef.current);
+    }
+
+    charAdvanceTimerRef.current = window.setTimeout(() => {
+      charAdvanceTimerRef.current = null;
       setRevealedCharCount(nextCount);
       setFlyingChar(null);
 
       if (wordComplete) {
-        const isPerfect = !writeHadMistake;
+        const isPerfect = !writeHadMistakeRef.current;
         setQuestions((current) =>
           current.map((question, index) =>
             index === questionIndex
@@ -277,13 +272,14 @@ export default function GameClient() {
         );
         setWriteStatus(isPerfect ? "correct" : "wrong");
         setWriteFeedback("");
+        advancingCharRef.current = false;
         return;
       }
 
       setWriteCharIndex(nextCount);
-      setCurrentCharComplete(false);
       setWriteStatus("idle");
       setWriteFeedback("");
+      advancingCharRef.current = false;
     }, 560);
   }
 
@@ -332,13 +328,17 @@ export default function GameClient() {
   }
 
   function resetWriteProgress() {
+    if (charAdvanceTimerRef.current) {
+      window.clearTimeout(charAdvanceTimerRef.current);
+      charAdvanceTimerRef.current = null;
+    }
     setShowWritePinyin(false);
     setShowStrokeGuide(false);
     showStrokeGuideRef.current = false;
+    writeHadMistakeRef.current = false;
+    advancingCharRef.current = false;
     setWriteCharIndex(0);
     setRevealedCharCount(0);
-    setCurrentCharComplete(false);
-    setWriteHadMistake(false);
     setWriteStatus("idle");
     setWriteFeedback("");
     setFlyingChar(null);
@@ -524,9 +524,6 @@ export default function GameClient() {
             </div>
             <div className="writer-target" ref={writerTargetRef} />
             {writeFeedback ? <div className={`game-feedback ${writeStatus === "wrong" || writeStatus === "error" ? "wrong" : "correct"}`}>{writeFeedback}</div> : null}
-            <button className="button full-width" type="button" onClick={checkWrittenChar}>
-              Kiểm tra
-            </button>
           </section>
         ) : (
           <div className={`game-feedback card ${currentQuestion.wasCorrect ? "correct" : "wrong"}`} aria-live="polite">
