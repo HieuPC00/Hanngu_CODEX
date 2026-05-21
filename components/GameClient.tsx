@@ -327,6 +327,20 @@ export default function GameClient() {
     router.push("/");
   }
 
+  function replayCurrentGame() {
+    if (!questions.length) return;
+
+    setQuestions((current) =>
+      current.map((question) => ({
+        item: question.item,
+        options: gameMode === "choice" ? shuffleItems(question.options) : question.options
+      }))
+    );
+    setQuestionIndex(0);
+    resetWriteProgress();
+    setStatus("playing");
+  }
+
   function resetWriteProgress() {
     if (charAdvanceTimerRef.current) {
       window.clearTimeout(charAdvanceTimerRef.current);
@@ -355,8 +369,8 @@ export default function GameClient() {
             <ResultStat label="Sai" value={wrongCount} tone="bad" />
             <ResultStat label="Tổng" value={questions.length} />
           </div>
-          <button className="button full-width" type="button" onClick={startGame} disabled={loading}>
-            {loading ? "Đang tạo..." : "Chơi lại"}
+          <button className="button full-width" type="button" onClick={replayCurrentGame}>
+            Chơi lại
           </button>
           <button className="ghost-button full-width" type="button" onClick={createStudyLessonFromGame}>
             Tạo bài học
