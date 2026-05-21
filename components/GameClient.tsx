@@ -147,7 +147,7 @@ export default function GameClient() {
       writerRef.current = null;
       target.innerHTML = "";
     };
-  }, [status, gameMode, currentQuestion?.item.id, currentWriteChar, writeAnswered]);
+  }, [status, gameMode, currentQuestion?.item.id, currentWriteChar, writeCharIndex, writeAnswered]);
 
   async function startGame() {
     setLoading(true);
@@ -539,9 +539,11 @@ export default function GameClient() {
           </div>
         )}
 
-        <button className="button full-width" type="button" onClick={goNext} disabled={!answered}>
-          {questionIndex + 1 >= questions.length ? "Xem kết quả" : "Câu tiếp theo"}
-        </button>
+        {writeAnswered ? (
+          <button className="button full-width" type="button" onClick={goNext}>
+            {questionIndex + 1 >= questions.length ? "Xem kết quả" : "Câu tiếp theo"}
+          </button>
+        ) : null}
       </section>
     );
   }
