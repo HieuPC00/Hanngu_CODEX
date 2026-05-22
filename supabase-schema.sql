@@ -57,6 +57,32 @@ create table if not exists public.study_counters (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.exam_questions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  section text not null,
+  type text not null,
+  question text not null,
+  prompt text,
+  option_a text,
+  option_b text,
+  option_c text,
+  option_d text,
+  answer text not null,
+  audio_text text,
+  hanzi text,
+  pinyin text,
+  meaning text,
+  explanation text,
+  difficulty public.item_difficulty not null default 'easy',
+  tags text,
+  scored boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists exam_questions_user_section_idx on public.exam_questions(user_id, section);
+create index if not exists exam_questions_created_idx on public.exam_questions(user_id, created_at desc);
+
 alter table public.documents drop constraint if exists documents_user_id_fkey;
 alter table public.items drop constraint if exists items_user_id_fkey;
 alter table public.study_logs drop constraint if exists study_logs_user_id_fkey;
@@ -88,6 +114,7 @@ alter table public.documents enable row level security;
 alter table public.items enable row level security;
 alter table public.study_logs enable row level security;
 alter table public.study_counters enable row level security;
+alter table public.exam_questions enable row level security;
 
 drop policy if exists "documents select own" on public.documents;
 drop policy if exists "documents insert own" on public.documents;
@@ -105,6 +132,10 @@ drop policy if exists "study logs insert own" on public.study_logs;
 drop policy if exists "study counters shared code select" on public.study_counters;
 drop policy if exists "study counters shared code insert" on public.study_counters;
 drop policy if exists "study counters shared code update" on public.study_counters;
+drop policy if exists "exam questions shared code select" on public.exam_questions;
+drop policy if exists "exam questions shared code insert" on public.exam_questions;
+drop policy if exists "exam questions shared code update" on public.exam_questions;
+drop policy if exists "exam questions shared code delete" on public.exam_questions;
 
 create policy "documents select own" on public.documents for select to authenticated using (auth.uid() = user_id);
 create policy "documents insert own" on public.documents for insert to authenticated with check (auth.uid() = user_id);
@@ -141,6 +172,7 @@ with check (user_id in (
 grant usage on schema public to anon, authenticated;
 grant select, insert, update on public.items to anon, authenticated;
 grant select, insert, update on public.study_counters to anon, authenticated;
+grant select, insert, update, delete on public.exam_questions to anon, authenticated;
 
 create policy "study logs select own" on public.study_logs for select to authenticated using (auth.uid() = user_id);
 create policy "study logs insert own" on public.study_logs for insert to authenticated with check (
@@ -170,6 +202,34 @@ using (user_id in (
   'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
 ))
 with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "exam questions shared code select" on public.exam_questions for select to anon, authenticated
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "exam questions shared code insert" on public.exam_questions for insert to anon, authenticated
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "exam questions shared code update" on public.exam_questions for update to anon, authenticated
+using (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+))
+with check (user_id in (
+  '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+  'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+));
+
+create policy "exam questions shared code delete" on public.exam_questions for delete to anon, authenticated
+using (user_id in (
   '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
   'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
 ));
