@@ -515,9 +515,10 @@ function PracticeView({
               </header>
 
               <div className="exam-question-stack">
-                {groupAttemptQuestions(section).map((group) => (
+                {withQuestionStartIndexes(groupAttemptQuestions(section)).map(({ group, startIndex }) => (
                   <ListeningGroupBlock
                     group={group}
+                    startIndex={startIndex}
                     sectionId={section.form.id}
                     submitted={submitted}
                     listenCounts={listenCounts}
@@ -597,6 +598,7 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
 
 function ListeningGroupBlock({
   group,
+  startIndex,
   sectionId,
   submitted,
   listenCounts,
@@ -604,6 +606,7 @@ function ListeningGroupBlock({
   onUpdateAnswer
 }: {
   group: ListeningGroup;
+  startIndex: number;
   sectionId: string;
   submitted: boolean;
   listenCounts: Record<string, number>;
@@ -629,7 +632,7 @@ function ListeningGroupBlock({
       {group.questions.map((item, index) => (
         <ExamQuestionCard
           item={item}
-          index={index}
+          index={startIndex + index}
           submitted={submitted}
           showAudioControl={!showGroupControl}
           listenCounts={listenCounts}
@@ -739,6 +742,16 @@ function groupAttemptQuestions(section: AttemptSection): ListeningGroup[] {
   });
 
   return Array.from(groups.values());
+}
+
+function withQuestionStartIndexes(groups: ListeningGroup[]) {
+  let startIndex = 0;
+
+  return groups.map((group) => {
+    const current = { group, startIndex };
+    startIndex += group.questions.length;
+    return current;
+  });
 }
 
 function audioGroupKey(question: ExamQuestion, fallbackKey: string) {
