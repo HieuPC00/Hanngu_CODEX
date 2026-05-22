@@ -46,7 +46,8 @@ type Point = {
 const gameSize = 10;
 const candidateLimit = 160;
 const writerSize = 220;
-const handwritingMatchThreshold = 0.16;
+const handwritingMatchThreshold = 0.12;
+const handwritingCoverageThreshold = 0.72;
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 
 export default function GameClient() {
@@ -117,7 +118,7 @@ export default function GameClient() {
           drawingColor: "#2563eb",
           highlightColor: "#2563eb",
           highlightCompleteColor: "#16a34a",
-          drawingWidth: 18,
+          drawingWidth: 10,
           strokeWidth: 2,
           showHintAfterMisses: false,
           onLoadCharDataError: () => {
@@ -295,8 +296,8 @@ export default function GameClient() {
       return;
     }
 
-    const score = scoreFreehandWriting(strokes, targetStrokePointsRef.current);
-    if (Number.isFinite(score) && score <= handwritingMatchThreshold) {
+    const result = scoreFreehandWriting(strokes, targetStrokePointsRef.current);
+    if (Number.isFinite(result.score) && result.score <= handwritingMatchThreshold && result.coverage >= handwritingCoverageThreshold) {
       completeWrittenChar();
       return;
     }
@@ -395,7 +396,7 @@ export default function GameClient() {
     context.clearRect(0, 0, writerSize, writerSize);
     context.lineCap = "round";
     context.lineJoin = "round";
-    context.lineWidth = 18;
+    context.lineWidth = 10;
     context.strokeStyle = "#1f2937";
   }
 
@@ -463,7 +464,7 @@ export default function GameClient() {
     const context = writerCanvasRef.current?.getContext("2d");
     if (!context) return;
     context.beginPath();
-    context.arc(point.x, point.y, 9, 0, Math.PI * 2);
+    context.arc(point.x, point.y, 5, 0, Math.PI * 2);
     context.fillStyle = "#1f2937";
     context.fill();
   }
@@ -886,17 +887,21 @@ function compactLength(text?: string | null) {
 }
 
 function scoreFreehandWriting(userStrokes: Point[][], targetStrokes: Point[][]) {
-  if (!userStrokes.length || !targetStrokes.length) return Number.POSITIVE_INFINITY;
+  if (!userStrokes.length || !targetStrokes.length) return { score: Number.POSITIVE_INFINITY, coverage: 0 };
 
   const userPoints = normalizePointCloud(densifyPointStrokes(userStrokes, 5));
   const targetPoints = normalizePointCloud(densifyPointStrokes(targetStrokes.map(toCanvasStroke), 5));
-  if (userPoints.length < 8 || targetPoints.length < 8) return Number.POSITIVE_INFINITY;
+  if (userPoints.length < 8 || targetPoints.length < 8) return { score: Number.POSITIVE_INFINITY, coverage: 0 };
 
   const userToTarget = averageNearestDistance(userPoints, targetPoints);
   const targetToUser = averageNearestDistance(targetPoints, userPoints);
-  const strokeCountPenalty = Math.min(0.05, Math.abs(userStrokes.length - targetStrokes.length) * 0.006);
+  const strokeCountPenalty = Math.min(0.08, Math.abs(userStrokes.length - targetStrokes.length) * 0.012);
+  const coverage = pointCoverage(targetPoints, userPoints, 0.13);
 
-  return userToTarget * 0.55 + targetToUser * 0.45 + strokeCountPenalty;
+  return {
+    score: userToTarget * 0.55 + targetToUser * 0.45 + strokeCountPenalty,
+    coverage
+  };
 }
 
 function toCanvasStroke(stroke: Point[]) {
@@ -982,6 +987,20 @@ function averageNearestDistance(fromPoints: Point[], toPoints: Point[]) {
   }, 0);
 
   return total / fromPoints.length;
+}
+
+function pointCoverage(requiredPoints: Point[], drawnPoints: Point[], radius: number) {
+  if (!requiredPoints.length || !drawnPoints.length) return 0;
+
+  const coveredCount = requiredPoints.reduce((count, point) => {
+    for (const candidate of drawnPoints) {
+      if (pointDistance(point, candidate) <= radius) return count + 1;
+    }
+
+    return count;
+  }, 0);
+
+  return coveredCount / requiredPoints.length;
 }
 
 function pointDistance(left: Point, right: Point) {
