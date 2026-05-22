@@ -46,10 +46,11 @@ type Point = {
 const gameSize = 10;
 const candidateLimit = 160;
 const writerSize = 220;
-const handwritingMatchThreshold = 0.095;
-const handwritingCoverageThreshold = 0.84;
-const handwritingStrokeCoverageThreshold = 0.42;
-const handwritingPointCoverageRadius = 0.095;
+const handwritingMatchThreshold = 0.078;
+const handwritingCoverageThreshold = 0.93;
+const handwritingStrokeCoverageThreshold = 0.72;
+const handwritingStrokeReverseCoverageThreshold = 0.32;
+const handwritingPointCoverageRadius = 0.065;
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 
 export default function GameClient() {
@@ -898,24 +899,36 @@ function scoreFreehandWriting(userStrokes: Point[][], targetStrokes: Point[][]) 
 
   const normalizedUserStrokes = normalizePointGroups(userStrokes);
   const normalizedTargetStrokes = normalizePointGroups(targetStrokes.map(toCanvasStroke));
-  const userPoints = densifyPointStrokes(normalizedUserStrokes, 0.025);
-  const targetPoints = densifyPointStrokes(normalizedTargetStrokes, 0.025);
+  const userStrokePointGroups = normalizedUserStrokes.map((stroke) => densifyPointStrokes([stroke], 0.025));
+  const targetStrokePointGroups = normalizedTargetStrokes.map((stroke) => densifyPointStrokes([stroke], 0.025));
+  const userPoints = userStrokePointGroups.flat();
+  const targetPoints = targetStrokePointGroups.flat();
   if (userPoints.length < 8 || targetPoints.length < 8) return { score: Number.POSITIVE_INFINITY, coverage: 0, missingStrokeCount: Number.POSITIVE_INFINITY };
 
   const userToTarget = averageNearestDistance(userPoints, targetPoints);
   const targetToUser = averageNearestDistance(targetPoints, userPoints);
-  const strokeCountPenalty = Math.min(0.08, Math.abs(userStrokes.length - targetStrokes.length) * 0.012);
+  const strokeCountPenalty = Math.min(
+    0.14,
+    Math.max(0, targetStrokes.length - userStrokes.length) * 0.025 + Math.max(0, userStrokes.length - targetStrokes.length) * 0.012
+  );
   const coverage = pointCoverage(targetPoints, userPoints, handwritingPointCoverageRadius);
-  const missingStrokeCount = normalizedTargetStrokes.filter((stroke) => {
-    const strokePoints = densifyPointStrokes([stroke], 0.025);
-    return pointCoverage(strokePoints, userPoints, handwritingPointCoverageRadius) < handwritingStrokeCoverageThreshold;
-  }).length;
+  const missingStrokeCount = targetStrokePointGroups.filter(
+    (strokePoints) => !hasMatchingStroke(strokePoints, userStrokePointGroups, handwritingPointCoverageRadius)
+  ).length;
 
   return {
     score: userToTarget * 0.55 + targetToUser * 0.45 + strokeCountPenalty,
     coverage,
     missingStrokeCount
   };
+}
+
+function hasMatchingStroke(requiredStroke: Point[], drawnStrokes: Point[][], radius: number) {
+  return drawnStrokes.some((drawnStroke) => {
+    const requiredCoverage = pointCoverage(requiredStroke, drawnStroke, radius);
+    const drawnCoverage = pointCoverage(drawnStroke, requiredStroke, radius * 1.15);
+    return requiredCoverage >= handwritingStrokeCoverageThreshold && drawnCoverage >= handwritingStrokeReverseCoverageThreshold;
+  });
 }
 
 function toCanvasStroke(stroke: Point[]) {
