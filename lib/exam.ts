@@ -16,6 +16,7 @@ export type ExamSectionId =
 export type ExamQuestion = {
   id: string;
   user_id: string;
+  group_id: string | null;
   section: ExamSectionId;
   type: ExamQuestionType;
   question: string;
@@ -71,7 +72,7 @@ export const examSectionIds = examSections.map((section) => section.id);
 export const examQuestionTypes: ExamQuestionType[] = ["choice_ab", "choice_abcd", "true_false", "fill_blank", "short_answer", "tone_mark"];
 
 export const examQuestionColumns =
-  "id,user_id,section,type,question,prompt,option_a,option_b,option_c,option_d,answer,audio_text,hanzi,pinyin,meaning,explanation,difficulty,tags,scored,created_at";
+  "id,user_id,group_id,section,type,question,prompt,option_a,option_b,option_c,option_d,answer,audio_text,hanzi,pinyin,meaning,explanation,difficulty,tags,scored,created_at";
 
 export const examManualPlaceholder = `***
 section: p1_1_word_sound
@@ -87,6 +88,19 @@ meaning: phong phú
 explanation: Đáp án đúng là A - fēngfù.
 difficulty: easy
 tags: ngữ âm, chọn từ nghe được
+***
+section: p2_5_dialogue_tf
+group_id: dialogue_01
+type: true_false
+question: 他们星期天一起去商店。
+answer: false
+audio_text: 男: 星期天你去哪儿？女: 我去书店，你呢？男: 我也想去书店。我跟你一起去，好吗？
+hanzi: 他们星期天一起去书店。
+pinyin: tāmen Xīngqītiān yìqǐ qù shūdiàn.
+meaning: Chủ nhật họ cùng đi hiệu sách.
+explanation: Đoạn nghe nói họ đi 书店, không phải 商店.
+difficulty: easy
+tags: nghe hiểu, đúng sai, hội thoại
 ***
 section: extra_quick_answer
 type: short_answer
@@ -115,6 +129,16 @@ export function labelExamType(type: string) {
 
 export function isScoredSection(sectionId: string) {
   return sectionId.startsWith("p1_") || sectionId.startsWith("p2_");
+}
+
+export function listenLimitForSection(sectionId: string) {
+  if (sectionId === "p1_1_word_sound" || sectionId === "p1_2_sentence_sound") return 1;
+  if (sectionId === "p1_3_tone_mark" || sectionId === "p2_4_dialogue_choice") return 2;
+  return 3;
+}
+
+export function isSharedListeningSection(sectionId: string) {
+  return sectionId === "p2_5_dialogue_tf" || sectionId.startsWith("p2_5_passage_");
 }
 
 export function parseExamQuestionText(text: string): { items: ExamQuestionDraft[]; error?: string } {
@@ -159,6 +183,7 @@ function parseExamQuestionBlock(block: string): ExamQuestionDraft | null {
   const type = fields.get("type") || "";
   const difficulty = normalizeExamDifficulty(fields.get("difficulty"));
   const draft: ExamQuestionDraft = {
+    group_id: nullableField(fields.get("group_id")),
     section: section as ExamSectionId,
     type: type as ExamQuestionType,
     question: fields.get("question") || "",

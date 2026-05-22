@@ -182,6 +182,46 @@
   gap: 7px;
 }
 
+.exam-listening-group,
+.exam-listening-single {
+  display: grid;
+  gap: 8px;
+}
+
+.exam-listening-group {
+  border: 1px dashed rgba(37, 99, 235, 0.3);
+  border-radius: 12px;
+  background: rgba(239, 246, 255, 0.5);
+  padding: 8px;
+}
+
+.exam-audio-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.exam-audio-control span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.exam-listen-button {
+  min-height: 38px;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--red);
+  padding: 0 12px;
+  font-weight: 900;
+}
+
+.exam-listen-button:disabled {
+  opacity: 0.48;
+}
+
 .exam-option {
   display: grid;
   grid-template-columns: auto 1fr;

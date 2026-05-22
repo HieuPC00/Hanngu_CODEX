@@ -5,11 +5,12 @@ import { createClient } from "@/lib/supabase-browser";
 import {
   examManualPlaceholder,
   examQuestionColumns,
-  examSections,
   extraExamSections,
   isExamAnswerCorrect,
+  isSharedListeningSection,
   labelExamSection,
   labelExamType,
+  listenLimitForSection,
   mainExamSections,
   parseExamQuestionText,
   shuffleExamItems,
@@ -35,6 +36,12 @@ type AttemptSection = {
   questions: AttemptQuestion[];
 };
 
+type ListeningGroup = {
+  key: string;
+  audioText: string | null;
+  questions: AttemptQuestion[];
+};
+
 type ExamStats = {
   total: number;
   scored: number;
@@ -46,6 +53,7 @@ const emptyStats: ExamStats = {
   scored: 0,
   extra: 0
 };
+const preferredVoiceKey = "hanngu-preferred-chinese-voice";
 
 export default function ExamClient() {
   const [view, setView] = useState<ExamView>("practice");
@@ -55,6 +63,7 @@ export default function ExamClient() {
   const [stats, setStats] = useState<ExamStats>(emptyStats);
   const [attempt, setAttempt] = useState<AttemptSection[]>([]);
   const [submitted, setSubmitted] = useState(false);
+  const [listenCounts, setListenCounts] = useState<Record<string, number>>({});
   const [examWarnings, setExamWarnings] = useState<string[]>([]);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualText, setManualText] = useState("");
@@ -70,6 +79,20 @@ export default function ExamClient() {
 
   useEffect(() => {
     loadQuestions();
+  }, []);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const synth = window.speechSynthesis;
+    const primeVoices = () => cacheBestChineseVoice(synth.getVoices());
+
+    primeVoices();
+    synth.addEventListener("voiceschanged", primeVoices);
+    synth.getVoices();
+
+    return () => {
+      synth.removeEventListener("voiceschanged", primeVoices);
+    };
   }, []);
 
   async function loadQuestions() {
@@ -156,6 +179,7 @@ export default function ExamClient() {
 
     setAttempt(nextAttempt);
     setSubmitted(false);
+    setListenCounts({});
     setExamWarnings(nextWarnings);
     setView("practice");
   }
@@ -191,7 +215,29 @@ export default function ExamClient() {
   function resetExam() {
     setAttempt([]);
     setSubmitted(false);
+    setListenCounts({});
     setExamWarnings([]);
+  }
+
+  async function listenToAudio(groupKey: string, audioText: string | null, sectionId: string) {
+    if (!audioText?.trim()) {
+      alert("Câu này chưa có audio_text để đọc.");
+      return;
+    }
+
+    const limit = listenLimitForSection(sectionId);
+    const used = listenCounts[groupKey] || 0;
+
+    if (!submitted && used >= limit) {
+      alert(`Phần này chỉ được nghe ${limit} lần.`);
+      return;
+    }
+
+    if (!submitted) {
+      setListenCounts((current) => ({ ...current, [groupKey]: used + 1 }));
+    }
+
+    await speakExamText(audioText, sectionId);
   }
 
   function previewManualText() {
@@ -212,6 +258,7 @@ export default function ExamClient() {
       .filter((item) => !item.validationErrors.length)
       .map((item) => ({
         user_id: getBrowserOwnerId(),
+        group_id: item.group_id,
         section: item.section,
         type: item.type,
         question: item.question,
@@ -341,6 +388,7 @@ export default function ExamClient() {
                     <span>{labelExamSection(item.section)}</span>
                     <span>{labelExamType(item.type)}</span>
                     <span>{item.scored ? "Tính điểm" : "Luyện thêm"}</span>
+                    {item.group_id ? <span>Nhóm nghe: {item.group_id}</span> : null}
                   </div>
                   <strong>{item.question}</strong>
                   {item.prompt ? <p>{item.prompt}</p> : null}
@@ -369,10 +417,12 @@ export default function ExamClient() {
           score10={score10}
           correctCount={correctScoredCount}
           totalCount={scoredQuestions.length}
+          listenCounts={listenCounts}
           onCreateExam={createExam}
           onResetExam={resetExam}
           onUpdateAnswer={updateAnswer}
           onSubmitExam={submitExam}
+          onListenAudio={listenToAudio}
         />
       ) : (
         <QuestionLibraryView questions={questions} stats={stats} loading={status === "loading"} onRefresh={loadQuestions} />
@@ -390,10 +440,12 @@ function PracticeView({
   score10,
   correctCount,
   totalCount,
+  listenCounts,
   onCreateExam,
   onResetExam,
   onUpdateAnswer,
-  onSubmitExam
+  onSubmitExam,
+  onListenAudio
 }: {
   status: ExamStatus;
   stats: ExamStats;
@@ -403,10 +455,12 @@ function PracticeView({
   score10: number;
   correctCount: number;
   totalCount: number;
+  listenCounts: Record<string, number>;
   onCreateExam: () => void;
   onResetExam: () => void;
   onUpdateAnswer: (instanceId: string, answer: string) => void;
   onSubmitExam: () => void;
+  onListenAudio: (groupKey: string, audioText: string | null, sectionId: string) => void;
 }) {
   const hasAttempt = attempt.length > 0;
 
@@ -461,13 +515,15 @@ function PracticeView({
               </header>
 
               <div className="exam-question-stack">
-                {section.questions.map((item, index) => (
-                  <ExamQuestionCard
-                    item={item}
-                    index={index}
+                {groupAttemptQuestions(section).map((group) => (
+                  <ListeningGroupBlock
+                    group={group}
+                    sectionId={section.form.id}
                     submitted={submitted}
-                    onUpdateAnswer={(answer) => onUpdateAnswer(item.instanceId, answer)}
-                    key={item.instanceId}
+                    listenCounts={listenCounts}
+                    onListenAudio={onListenAudio}
+                    onUpdateAnswer={onUpdateAnswer}
+                    key={group.key}
                   />
                 ))}
               </div>
@@ -517,6 +573,7 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
                 <span>{labelExamSection(question.section)}</span>
                 <span>{labelExamType(question.type)}</span>
                 <span>{question.scored ? "Tính điểm" : "Luyện thêm"}</span>
+                {question.group_id ? <span>Nhóm nghe: {question.group_id}</span> : null}
               </div>
               <strong>{question.question}</strong>
               {question.prompt ? <p>{question.prompt}</p> : null}
@@ -538,8 +595,72 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
   );
 }
 
-function ExamQuestionCard({ item, index, submitted, onUpdateAnswer }: { item: AttemptQuestion; index: number; submitted: boolean; onUpdateAnswer: (answer: string) => void }) {
+function ListeningGroupBlock({
+  group,
+  sectionId,
+  submitted,
+  listenCounts,
+  onListenAudio,
+  onUpdateAnswer
+}: {
+  group: ListeningGroup;
+  sectionId: string;
+  submitted: boolean;
+  listenCounts: Record<string, number>;
+  onListenAudio: (groupKey: string, audioText: string | null, sectionId: string) => void;
+  onUpdateAnswer: (instanceId: string, answer: string) => void;
+}) {
+  const showGroupControl = group.questions.length > 1 || isSharedListeningSection(sectionId);
+
+  return (
+    <div className={showGroupControl ? "exam-listening-group" : "exam-listening-single"}>
+      {showGroupControl ? (
+        <AudioListenControl
+          groupKey={group.key}
+          audioText={group.audioText}
+          sectionId={sectionId}
+          submitted={submitted}
+          listenCounts={listenCounts}
+          label="Nghe đoạn"
+          onListenAudio={onListenAudio}
+        />
+      ) : null}
+
+      {group.questions.map((item, index) => (
+        <ExamQuestionCard
+          item={item}
+          index={index}
+          submitted={submitted}
+          showAudioControl={!showGroupControl}
+          listenCounts={listenCounts}
+          onListenAudio={onListenAudio}
+          onUpdateAnswer={(answer) => onUpdateAnswer(item.instanceId, answer)}
+          key={item.instanceId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ExamQuestionCard({
+  item,
+  index,
+  submitted,
+  showAudioControl,
+  listenCounts,
+  onListenAudio,
+  onUpdateAnswer
+}: {
+  item: AttemptQuestion;
+  index: number;
+  submitted: boolean;
+  showAudioControl: boolean;
+  listenCounts: Record<string, number>;
+  onListenAudio: (groupKey: string, audioText: string | null, sectionId: string) => void;
+  onUpdateAnswer: (answer: string) => void;
+}) {
   const question = item.question;
+  const groupKey = audioGroupKey(question, item.instanceId);
 
   return (
     <article className={submitted ? resultClassName(item) : "exam-question"}>
@@ -547,12 +668,96 @@ function ExamQuestionCard({ item, index, submitted, onUpdateAnswer }: { item: At
         <span>Câu {index + 1}</span>
         {!question.scored ? <em>Luyện thêm</em> : null}
       </div>
-      <strong>{question.question}</strong>
+      {showAudioControl ? (
+        <AudioListenControl
+          groupKey={groupKey}
+          audioText={question.audio_text}
+          sectionId={question.section}
+          submitted={submitted}
+          listenCounts={listenCounts}
+          label="Nghe"
+          onListenAudio={onListenAudio}
+        />
+      ) : null}
+      <strong>{displayQuestionText(question, submitted)}</strong>
       {question.prompt ? <p className="exam-prompt">{question.prompt}</p> : null}
       {renderAnswerInput(question, item.userAnswer, submitted, onUpdateAnswer)}
       {submitted ? <OfficialAnswer item={item} /> : null}
     </article>
   );
+}
+
+function AudioListenControl({
+  groupKey,
+  audioText,
+  sectionId,
+  submitted,
+  listenCounts,
+  label,
+  onListenAudio
+}: {
+  groupKey: string;
+  audioText: string | null;
+  sectionId: string;
+  submitted: boolean;
+  listenCounts: Record<string, number>;
+  label: string;
+  onListenAudio: (groupKey: string, audioText: string | null, sectionId: string) => void;
+}) {
+  const limit = listenLimitForSection(sectionId);
+  const used = listenCounts[groupKey] || 0;
+  const remaining = Math.max(limit - used, 0);
+  const disabled = !submitted && (!audioText || remaining <= 0);
+
+  return (
+    <div className="exam-audio-control">
+      <button className="exam-listen-button" type="button" disabled={disabled} onClick={() => onListenAudio(groupKey, audioText, sectionId)}>
+        🔊 {submitted ? "Nghe lại" : `${label} ${remaining}/${limit}`}
+      </button>
+      <span>{audioText ? (submitted ? "Đã mở đáp án" : "Nội dung nghe đang ẩn") : "Thiếu audio_text"}</span>
+    </div>
+  );
+}
+
+function groupAttemptQuestions(section: AttemptSection): ListeningGroup[] {
+  const groups = new Map<string, ListeningGroup>();
+
+  section.questions.forEach((item) => {
+    const key = audioGroupKey(item.question, item.instanceId);
+    const current = groups.get(key);
+
+    if (current) {
+      current.questions.push(item);
+      return;
+    }
+
+    groups.set(key, {
+      key,
+      audioText: item.question.audio_text,
+      questions: [item]
+    });
+  });
+
+  return Array.from(groups.values());
+}
+
+function audioGroupKey(question: ExamQuestion, fallbackKey: string) {
+  if (question.group_id) return `group:${question.group_id}`;
+  if (isSharedListeningSection(question.section) && question.audio_text) return `audio:${stableHash(question.audio_text)}`;
+  return `item:${fallbackKey}`;
+}
+
+function stableHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function displayQuestionText(question: ExamQuestion, submitted: boolean) {
+  if (!submitted && question.section === "p2_4_dialogue_choice") return "Nghe hội thoại rồi chọn đáp án đúng.";
+  return question.question;
 }
 
 function resultClassName(item: AttemptQuestion) {
@@ -613,7 +818,7 @@ function OfficialAnswer({ item }: { item: AttemptQuestion }) {
     <div className="official-answer">
       <strong>{item.correct === undefined ? "Bỏ qua" : item.correct ? "Đúng" : "Chưa đúng"}</strong>
       <p>Đáp án: {question.answer}</p>
-      {question.audio_text ? <p>Nghe gốc: {question.audio_text}</p> : null}
+      {question.audio_text ? <p>Nội dung nghe: {question.audio_text}</p> : null}
       {question.hanzi ? <p className="official-hanzi">{question.hanzi}</p> : null}
       {question.pinyin ? <p className="official-pinyin">{question.pinyin}</p> : null}
       {question.meaning ? <p>{question.meaning}</p> : null}
@@ -629,4 +834,128 @@ function StatCard({ label, value }: { label: string; value: number }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+async function speakExamText(text: string, sectionId: string) {
+  if (!("speechSynthesis" in window)) {
+    alert("Trình duyệt này không hỗ trợ đọc phát âm.");
+    return;
+  }
+
+  const synth = window.speechSynthesis;
+  const speechText = prepareExamSpeechText(text);
+  const utterance = new SpeechSynthesisUtterance(speechText);
+  const voices = await getAvailableVoices(synth);
+  const voice = findBestChineseVoice(voices);
+
+  if (voice) {
+    cachePreferredVoice(voice);
+    utterance.voice = voice;
+    utterance.lang = voice.lang;
+  } else {
+    utterance.lang = "zh-CN";
+  }
+
+  utterance.rate = speechRateForExamSection(sectionId, speechText);
+  utterance.pitch = 1;
+  utterance.onerror = (event) => {
+    if (event.error !== "interrupted" && event.error !== "canceled") {
+      alert("Thiết bị này không tìm thấy giọng đọc tiếng Trung. Hãy thử mở bằng Safari/Chrome mới hoặc bật giọng tiếng Trung trong cài đặt máy.");
+    }
+  };
+
+  synth.cancel();
+  synth.resume();
+  synth.speak(utterance);
+}
+
+function prepareExamSpeechText(text: string) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function speechRateForExamSection(sectionId: string, text: string) {
+  if (sectionId === "p1_1_word_sound") return 0.72;
+  if (sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 0.78;
+  if (text.length > 120) return 0.9;
+  return 0.84;
+}
+
+function getAvailableVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
+  const voices = synth.getVoices();
+  if (voices.length > 0) return Promise.resolve(voices);
+
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      synth.removeEventListener("voiceschanged", handleVoicesChanged);
+      resolve(synth.getVoices());
+    }, 800);
+
+    function handleVoicesChanged() {
+      window.clearTimeout(timeout);
+      synth.removeEventListener("voiceschanged", handleVoicesChanged);
+      resolve(synth.getVoices());
+    }
+
+    synth.addEventListener("voiceschanged", handleVoicesChanged);
+    synth.getVoices();
+  });
+}
+
+function cacheBestChineseVoice(voices: SpeechSynthesisVoice[]) {
+  const voice = findBestChineseVoice(voices);
+  if (voice) cachePreferredVoice(voice);
+}
+
+function cachePreferredVoice(voice: SpeechSynthesisVoice) {
+  try {
+    localStorage.setItem(preferredVoiceKey, voice.voiceURI || voice.name);
+  } catch {
+    // localStorage can be unavailable in private browsing modes.
+  }
+}
+
+function readPreferredVoiceId() {
+  try {
+    return localStorage.getItem(preferredVoiceKey);
+  } catch {
+    return null;
+  }
+}
+
+function findBestChineseVoice(voices: SpeechSynthesisVoice[]) {
+  const candidates = voices
+    .map((voice) => ({ voice, score: scoreChineseVoice(voice, readPreferredVoiceId()) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score);
+
+  return candidates[0]?.voice;
+}
+
+function scoreChineseVoice(voice: SpeechSynthesisVoice, preferredId: string | null) {
+  const lang = voice.lang.toLowerCase();
+  const name = voice.name.toLowerCase();
+  const id = voice.voiceURI || voice.name;
+  let score = 0;
+
+  if (/^zh[-_]?cn/.test(lang) || /hans|china|mainland|普通话|中国|大陆/.test(name)) score += 80;
+  else if (/^zh[-_]?sg/.test(lang)) score += 66;
+  else if (/^zh[-_]?tw/.test(lang) || /taiwan|國語|台湾/.test(name)) score += 56;
+  else if (/^zh[-_]?hk/.test(lang) || /hong kong|香港/.test(name)) score += 36;
+  else if (/^zh/.test(lang)) score += 30;
+  else if (/chinese|mandarin|中文|普通话|國語/.test(name)) score += 28;
+
+  if (score === 0) return 0;
+
+  if (preferredId && id === preferredId) score += 8;
+  if (voice.localService) score += 6;
+  if (/natural|neural|premium|enhanced|siri|google|microsoft|xiaoxiao|xiaoyi|xiaobei|xiaohan|yunxi|tingting|mei-?jia|li-?mu|mandarin|普通话/.test(name)) {
+    score += 14;
+  }
+  if (/compact|eloquence|robot|cantonese|粤|粵/.test(name)) score -= 20;
+
+  return score;
 }
