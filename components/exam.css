@@ -105,6 +105,13 @@
   color: #166534;
 }
 
+.exam-score-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .exam-section-head {
   display: flex;
   align-items: flex-start;
@@ -127,6 +134,22 @@
   font-style: normal;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.exam-section-instruction {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.exam-section-instruction span {
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.78rem;
 }
 
 .exam-question,
@@ -206,6 +229,10 @@
   color: var(--muted);
   font-size: 0.88rem;
   font-weight: 800;
+}
+
+.exam-audio-control .listen-over-limit {
+  color: var(--danger);
 }
 
 .exam-listen-button {
@@ -291,6 +318,11 @@
   font-style: italic;
 }
 
+.official-warning {
+  color: var(--danger);
+  font-weight: 850;
+}
+
 .exam-submit-button {
   min-height: 48px;
 }
@@ -309,16 +341,26 @@
 }
 
 .manual-error,
-.validation-box {
+.validation-box,
+.validation-warning-box {
   margin: 0;
   border-radius: 10px;
-  background: #fef2f2;
-  color: var(--danger);
   font-weight: 850;
   padding: 9px;
 }
 
-.validation-box p {
+.validation-box {
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.validation-warning-box {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.validation-box p,
+.validation-warning-box p {
   margin: 0;
 }
 

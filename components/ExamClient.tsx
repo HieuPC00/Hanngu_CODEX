@@ -29,6 +29,8 @@ type AttemptQuestion = {
   question: ExamQuestion;
   userAnswer: string;
   correct?: boolean;
+  listenCount?: number;
+  listenOverLimit?: boolean;
 };
 
 type AttemptSection = {
@@ -40,6 +42,11 @@ type ListeningGroup = {
   key: string;
   audioText: string | null;
   questions: AttemptQuestion[];
+};
+
+type ExamQuestionUnit = {
+  key: string;
+  questions: ExamQuestion[];
 };
 
 type ExamStats = {
@@ -73,6 +80,7 @@ export default function ExamClient() {
 
   const validManualCount = useMemo(() => manualItems.filter((item) => !item.validationErrors.length).length, [manualItems]);
   const invalidManualCount = manualItems.length - validManualCount;
+  const manualWarningCount = useMemo(() => manualItems.reduce((total, item) => total + item.validationWarnings.length, 0), [manualItems]);
   const scoredQuestions = attempt.flatMap((section) => section.questions).filter((item) => item.question.scored);
   const correctScoredCount = scoredQuestions.filter((item) => item.correct === true).length;
   const score10 = scoredQuestions.length ? Math.round((correctScoredCount / scoredQuestions.length) * 10 * 10) / 10 : 0;
@@ -134,13 +142,13 @@ export default function ExamClient() {
     }
   }
 
-  function createExam() {
+  async function createExam() {
     const nextWarnings: string[] = [];
     const nextAttempt: AttemptSection[] = [];
 
     mainExamSections.forEach((form) => {
       const candidates = questions.filter((question) => question.section === form.id);
-      const selected = shuffleExamItems(candidates).slice(0, form.count);
+      const selected = selectQuestionsForExam(form, candidates);
 
       if (selected.length < form.count) {
         nextWarnings.push(`${form.subtitle}: cần ${form.count}, hiện có ${selected.length}.`);
@@ -159,7 +167,7 @@ export default function ExamClient() {
     });
 
     extraExamSections.forEach((form) => {
-      const selected = shuffleExamItems(questions.filter((question) => question.section === form.id)).slice(0, form.count);
+      const selected = selectQuestionsForExam(form, questions.filter((question) => question.section === form.id));
       if (selected.length) {
         nextAttempt.push({
           form,
@@ -182,6 +190,7 @@ export default function ExamClient() {
     setListenCounts({});
     setExamWarnings(nextWarnings);
     setView("practice");
+    await incrementCreateCount();
   }
 
   function updateAnswer(instanceId: string, answer: string) {
@@ -200,10 +209,21 @@ export default function ExamClient() {
       current.map((section) => ({
         ...section,
         questions: section.questions.map((item) => {
-          if (!item.question.scored && !item.userAnswer.trim()) return { ...item, correct: undefined };
+          const groupKey = audioGroupKey(item.question, item.instanceId);
+          const limit = listenLimitForSection(item.question.section);
+          const listenCount = listenCounts[groupKey] || 0;
+          const listenOverLimit = listenCount > limit;
+          const isBlank = !item.userAnswer.trim();
+
+          if (!item.question.scored && isBlank) {
+            return { ...item, correct: undefined, listenCount, listenOverLimit };
+          }
+
           return {
             ...item,
-            correct: isExamAnswerCorrect(item.userAnswer, item.question.answer, item.question.type)
+            listenCount,
+            listenOverLimit,
+            correct: !isBlank && !listenOverLimit && isExamAnswerCorrect(item.userAnswer, item.question.answer, item.question.type)
           };
         })
       }))
@@ -219,25 +239,46 @@ export default function ExamClient() {
     setExamWarnings([]);
   }
 
+  function retryExam() {
+    setAttempt((current) =>
+      current.map((section) => ({
+        ...section,
+        questions: section.questions.map((item) => ({
+          ...item,
+          userAnswer: "",
+          correct: undefined,
+          listenCount: undefined,
+          listenOverLimit: undefined
+        }))
+      }))
+    );
+    setSubmitted(false);
+    setListenCounts({});
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   async function listenToAudio(groupKey: string, audioText: string | null, sectionId: string) {
     if (!audioText?.trim()) {
       alert("Câu này chưa có audio_text để đọc.");
       return;
     }
 
-    const limit = listenLimitForSection(sectionId);
     const used = listenCounts[groupKey] || 0;
-
-    if (!submitted && used >= limit) {
-      alert(`Phần này chỉ được nghe ${limit} lần.`);
-      return;
-    }
 
     if (!submitted) {
       setListenCounts((current) => ({ ...current, [groupKey]: used + 1 }));
     }
 
     await speakExamText(audioText, sectionId);
+  }
+
+  async function incrementCreateCount() {
+    try {
+      const supabase = createClient();
+      await supabase.rpc("increment_create_count", { p_user_id: getBrowserOwnerId() });
+    } catch {
+      // Counting exam creation should never block taking the exam.
+    }
   }
 
   function previewManualText() {
@@ -254,7 +295,17 @@ export default function ExamClient() {
   }
 
   async function saveManualQuestions() {
-    const rows = manualItems
+    const parsed = parseExamQuestionText(manualText);
+
+    if (parsed.error) {
+      setManualItems([]);
+      setManualError(parsed.error);
+      return;
+    }
+
+    setManualItems(parsed.items);
+
+    const rows = parsed.items
       .filter((item) => !item.validationErrors.length)
       .map((item) => ({
         user_id: getBrowserOwnerId(),
@@ -375,6 +426,9 @@ export default function ExamClient() {
                 Lỗi <strong>{invalidManualCount}</strong>
               </span>
               <span>
+                Cảnh báo <strong>{manualWarningCount}</strong>
+              </span>
+              <span>
                 Luyện thêm <strong>{manualItems.filter((item) => !item.scored).length}</strong>
               </span>
             </div>
@@ -400,6 +454,13 @@ export default function ExamClient() {
                       ))}
                     </div>
                   ) : null}
+                  {item.validationWarnings.length ? (
+                    <div className="validation-warning-box">
+                      {item.validationWarnings.map((message) => (
+                        <p key={message}>{message}</p>
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -420,6 +481,7 @@ export default function ExamClient() {
           listenCounts={listenCounts}
           onCreateExam={createExam}
           onResetExam={resetExam}
+          onRetryExam={retryExam}
           onUpdateAnswer={updateAnswer}
           onSubmitExam={submitExam}
           onListenAudio={listenToAudio}
@@ -443,6 +505,7 @@ function PracticeView({
   listenCounts,
   onCreateExam,
   onResetExam,
+  onRetryExam,
   onUpdateAnswer,
   onSubmitExam,
   onListenAudio
@@ -456,8 +519,9 @@ function PracticeView({
   correctCount: number;
   totalCount: number;
   listenCounts: Record<string, number>;
-  onCreateExam: () => void;
+  onCreateExam: () => void | Promise<void>;
   onResetExam: () => void;
+  onRetryExam: () => void;
   onUpdateAnswer: (instanceId: string, answer: string) => void;
   onSubmitExam: () => void;
   onListenAudio: (groupKey: string, audioText: string | null, sectionId: string) => void;
@@ -497,8 +561,16 @@ function PracticeView({
           <span>Điểm</span>
           <strong>{score10}/10</strong>
           <p>
-            Đúng {correctCount}/{totalCount} câu tính điểm. Phần luyện thêm không cộng điểm.
+            Đúng {correctCount}/{totalCount} câu tính điểm. Câu nghe quá số lần cho phép được tính sai.
           </p>
+          <div className="exam-score-actions">
+            <button className="ghost-button" type="button" onClick={onRetryExam}>
+              Thi lại
+            </button>
+            <button className="button" type="button" onClick={onCreateExam}>
+              Thi tiếp
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -510,6 +582,10 @@ function PracticeView({
                 <div>
                   <h2>{section.form.title}</h2>
                   <p>{section.form.subtitle}</p>
+                  <div className="exam-section-instruction">
+                    <span>{section.form.title}</span>
+                    <span>{section.form.subtitle}</span>
+                  </div>
                 </div>
                 <span>{section.form.scored ? "Tính điểm" : "Luyện thêm"}</span>
               </header>
@@ -594,6 +670,52 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
       </div>
     </div>
   );
+}
+
+function selectQuestionsForExam(form: ExamFormSection, candidates: ExamQuestion[]) {
+  const units = shuffleExamItems(buildExamQuestionUnits(candidates));
+  const selected: ExamQuestion[] = [];
+
+  for (const unit of units) {
+    if (selected.length >= form.count) break;
+    selected.push(...unit.questions);
+  }
+
+  return selected;
+}
+
+function buildExamQuestionUnits(candidates: ExamQuestion[]): ExamQuestionUnit[] {
+  const units = new Map<string, ExamQuestionUnit>();
+
+  candidates.forEach((question) => {
+    const key = examSelectionUnitKey(question);
+    const current = units.get(key);
+
+    if (current) {
+      current.questions.push(question);
+      return;
+    }
+
+    units.set(key, {
+      key,
+      questions: [question]
+    });
+  });
+
+  return Array.from(units.values()).map((unit) => ({
+    ...unit,
+    questions: sortQuestionsInExamOrder(unit.questions)
+  }));
+}
+
+function examSelectionUnitKey(question: ExamQuestion) {
+  if (question.group_id) return `group:${question.section}:${question.group_id}`;
+  if (isSharedListeningSection(question.section) && question.audio_text) return `audio:${question.section}:${stableHash(question.audio_text)}`;
+  return `item:${question.id}`;
+}
+
+function sortQuestionsInExamOrder(questions: ExamQuestion[]) {
+  return [...questions].sort((left, right) => left.created_at.localeCompare(right.created_at));
 }
 
 function ListeningGroupBlock({
@@ -709,15 +831,17 @@ function AudioListenControl({
 }) {
   const limit = listenLimitForSection(sectionId);
   const used = listenCounts[groupKey] || 0;
-  const remaining = Math.max(limit - used, 0);
-  const disabled = !submitted && (!audioText || remaining <= 0);
+  const overLimit = used > limit;
+  const disabled = !audioText;
 
   return (
     <div className="exam-audio-control">
       <button className="exam-listen-button" type="button" disabled={disabled} onClick={() => onListenAudio(groupKey, audioText, sectionId)}>
-        🔊 {submitted ? "Nghe lại" : `${label} ${remaining}/${limit}`}
+        🔊 {submitted ? "Nghe lại" : `${label} ${used}/${limit}`}
       </button>
-      <span>{audioText ? (submitted ? "Đã mở đáp án" : "Nội dung nghe đang ẩn") : "Thiếu audio_text"}</span>
+      <span className={overLimit && !submitted ? "listen-over-limit" : ""}>
+        {audioText ? (submitted ? "Đã mở đáp án" : overLimit ? "Đã quá số lần, câu này sẽ tính sai" : "Nội dung nghe đang ẩn") : "Thiếu audio_text"}
+      </span>
     </div>
   );
 }
@@ -755,8 +879,8 @@ function withQuestionStartIndexes(groups: ListeningGroup[]) {
 }
 
 function audioGroupKey(question: ExamQuestion, fallbackKey: string) {
-  if (question.group_id) return `group:${question.group_id}`;
-  if (isSharedListeningSection(question.section) && question.audio_text) return `audio:${stableHash(question.audio_text)}`;
+  if (question.group_id) return `group:${question.section}:${question.group_id}`;
+  if (isSharedListeningSection(question.section) && question.audio_text) return `audio:${question.section}:${stableHash(question.audio_text)}`;
   return `item:${fallbackKey}`;
 }
 
@@ -826,10 +950,25 @@ function renderAnswerInput(question: ExamQuestion, answer: string, disabled: boo
 
 function OfficialAnswer({ item }: { item: AttemptQuestion }) {
   const question = item.question;
+  const listenLimit = listenLimitForSection(question.section);
+  const isBlank = !item.userAnswer.trim();
+  const statusText = item.listenOverLimit
+    ? "Nghe quá số lần cho phép"
+    : isBlank
+      ? "Bỏ trống"
+      : item.correct
+        ? "Đúng"
+        : "Chưa đúng";
 
   return (
     <div className="official-answer">
-      <strong>{item.correct === undefined ? "Bỏ qua" : item.correct ? "Đúng" : "Chưa đúng"}</strong>
+      <strong>{statusText}</strong>
+      {question.audio_text ? (
+        <p className={item.listenOverLimit ? "official-warning" : ""}>
+          Số lần nghe: {item.listenCount || 0}/{listenLimit}
+          {item.listenOverLimit ? " - vượt giới hạn nên tính sai." : ""}
+        </p>
+      ) : null}
       <p>Đáp án: {question.answer}</p>
       {question.audio_text ? <p>Nội dung nghe: {question.audio_text}</p> : null}
       {question.hanzi ? <p className="official-hanzi">{question.hanzi}</p> : null}

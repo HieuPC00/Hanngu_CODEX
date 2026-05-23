@@ -39,6 +39,7 @@ export type ExamQuestion = {
 
 export type ExamQuestionDraft = Omit<ExamQuestion, "id" | "user_id" | "created_at"> & {
   validationErrors: string[];
+  validationWarnings: string[];
 };
 
 export type ExamFormSection = {
@@ -77,15 +78,15 @@ export const examQuestionColumns =
 export const examManualPlaceholder = `***
 section: p1_1_word_sound
 type: choice_ab
-question: Chọn từ bạn nghe được
+question: 选择你在句中听到的词语
 A: fēngfù
 B: fènfù
 answer: A
-audio_text: fēngfù
-hanzi: 丰富
-pinyin: fēngfù
-meaning: phong phú
-explanation: Đáp án đúng là A - fēngfù.
+audio_text: 这种商品很丰富。
+hanzi: 这种商品很丰富。
+pinyin: zhè zhǒng shāngpǐn hěn fēngfù.
+meaning: Loại hàng này rất phong phú.
+explanation: Từ nghe được là fēngfù, tương ứng với đáp án A.
 difficulty: easy
 tags: ngữ âm, chọn từ nghe được
 ***
@@ -155,6 +156,7 @@ export function parseExamQuestionText(text: string): { items: ExamQuestionDraft[
     .filter((item): item is ExamQuestionDraft => Boolean(item));
 
   if (!items.length) return { items: [], error: "Không tìm thấy câu hỏi hợp lệ sau dấu ***." };
+  applyExamQuestionSetValidation(items);
   return { items };
 }
 
@@ -201,7 +203,8 @@ function parseExamQuestionBlock(block: string): ExamQuestionDraft | null {
     difficulty,
     tags: nullableField(fields.get("tags")),
     scored: isScoredSection(section),
-    validationErrors: []
+    validationErrors: [],
+    validationWarnings: []
   };
 
   draft.validationErrors = validateExamQuestionDraft(draft);
@@ -225,14 +228,74 @@ function validateExamQuestionDraft(item: ExamQuestionDraft) {
   if (!item.question.trim()) errors.push("Thiếu question.");
   if (!item.answer.trim()) errors.push("Thiếu answer.");
   if (item.type === "choice_ab" && (!item.option_a?.trim() || !item.option_b?.trim())) errors.push("Câu choice_ab cần có A và B.");
+  if (item.type === "choice_ab" && item.answer.trim() && !["A", "B"].includes(item.answer.trim().toUpperCase())) {
+    errors.push("Câu choice_ab cần answer là A hoặc B.");
+  }
   if (item.type === "choice_abcd" && (!item.option_a?.trim() || !item.option_b?.trim() || !item.option_c?.trim() || !item.option_d?.trim())) {
     errors.push("Câu choice_abcd cần có A, B, C, D.");
+  }
+  if (item.type === "choice_abcd" && item.answer.trim() && !["A", "B", "C", "D"].includes(item.answer.trim().toUpperCase())) {
+    errors.push("Câu choice_abcd cần answer là A, B, C hoặc D.");
   }
   if (item.type === "true_false" && !["true", "false", "đúng", "sai", "对", "错"].includes(item.answer.trim().toLowerCase())) {
     errors.push("Câu true_false cần answer là true hoặc false.");
   }
 
   return errors;
+}
+
+function applyExamQuestionSetValidation(items: ExamQuestionDraft[]) {
+  const grouped = new Map<string, ExamQuestionDraft[]>();
+
+  items.forEach((item) => {
+    item.validationWarnings = validateExamQuestionDraftWarnings(item);
+
+    if (!item.group_id) return;
+    const key = `${item.section}:${item.group_id}`;
+    grouped.set(key, [...(grouped.get(key) || []), item]);
+  });
+
+  grouped.forEach((groupItems) => {
+    const audioValues = Array.from(new Set(groupItems.map((item) => item.audio_text?.trim() || "").filter(Boolean)));
+
+    if (audioValues.length > 1) {
+      groupItems.forEach((item) => {
+        item.validationErrors.push("Cùng section + group_id nhưng audio_text khác nhau. Nhóm nghe phải dùng đúng một audio_text chung.");
+      });
+    }
+
+    if (groupItems.length > 1 && !isSharedListeningSection(groupItems[0].section) && groupItems[0].section !== "p2_4_dialogue_choice") {
+      groupItems.forEach((item) => {
+        item.validationWarnings.push("group_id đang dùng ở phần không bắt buộc nghe chung. App vẫn bốc nguyên nhóm, chỉ dùng khi thật sự cần.");
+      });
+    }
+  });
+}
+
+function validateExamQuestionDraftWarnings(item: ExamQuestionDraft) {
+  const warnings: string[] = [];
+  const audioText = item.audio_text?.trim() || "";
+
+  if (!audioText) {
+    warnings.push("Thiếu audio_text nên câu này sẽ không có nút nghe.");
+  } else if (!hasCjk(audioText)) {
+    warnings.push("audio_text có vẻ không có Hán tự. Nên dùng câu Hán tự để giọng đọc tiếng Trung chính xác hơn.");
+  }
+
+  if (isSharedListeningSection(item.section) && !item.group_id && audioText) {
+    warnings.push("Phần nghe chung chưa có group_id. App sẽ tự nhóm các câu có audio_text giống hệt nhau.");
+  }
+
+  if (item.type === "true_false" && item.option_a) warnings.push("true_false không cần A/B/C/D; app chỉ dùng answer true/false.");
+  if ((item.type === "fill_blank" || item.type === "short_answer" || item.type === "tone_mark") && (item.option_a || item.option_b || item.option_c || item.option_d)) {
+    warnings.push("Loại câu nhập tự do không dùng A/B/C/D; các lựa chọn sẽ bị bỏ qua.");
+  }
+
+  return warnings;
+}
+
+function hasCjk(value: string) {
+  return /[\u3400-\u9fff]/.test(value);
 }
 
 export function normalizeExamAnswer(value: string) {
