@@ -1048,15 +1048,34 @@ function buildToneMarkPrompt(question: PromptDisplayQuestion) {
 
   if (!targetWords.length) return source;
 
-  const targetSet = new Set(targetWords);
+  const parts = source.split(/(\s+|[;；/,、，。？！?!：:"'“”‘’《》〈〉（）()]+)/);
+  const strippedIndexes = new Set<number>();
 
-  return source
-    .split(/(\s+|[;；/,、，。？！?!：:"'“”‘’《》〈〉（）()]+)/)
-    .map((part) => {
-      if (!/[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüḿńňǹ]/.test(part)) return part;
-      return targetSet.has(normalizePinyinToneTarget(part)) ? stripPinyinToneMarks(part) : part;
-    })
-    .join("");
+  targetWords.forEach((target) => {
+    parts.forEach((part, index) => {
+      if (strippedIndexes.has(index) || !isPinyinPromptToken(part)) return;
+
+      let combined = "";
+      const tokenIndexes: number[] = [];
+
+      for (let cursor = index; cursor < parts.length; cursor += 1) {
+        const candidate = parts[cursor];
+        if (!isPinyinPromptToken(candidate)) continue;
+
+        combined += normalizePinyinToneTarget(candidate);
+        tokenIndexes.push(cursor);
+
+        if (combined === target) {
+          tokenIndexes.forEach((tokenIndex) => strippedIndexes.add(tokenIndex));
+          break;
+        }
+
+        if (!target.startsWith(combined) || combined.length >= target.length) break;
+      }
+    });
+  });
+
+  return parts.map((part, index) => (strippedIndexes.has(index) ? stripPinyinToneMarks(part) : part)).join("");
 }
 
 function firstAnswerAlternative(answer: string) {
@@ -1073,6 +1092,10 @@ function normalizePinyinToneTarget(value: string) {
     .replace(/([a-zv]+)5/g, "$1")
     .replace(/[^a-zv0-9]/g, "")
     .trim();
+}
+
+function isPinyinPromptToken(value: string) {
+  return /[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüḿńňǹ]/.test(value);
 }
 
 function stripPinyinToneMarks(value: string) {
