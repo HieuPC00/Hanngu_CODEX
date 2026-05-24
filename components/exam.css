@@ -295,6 +295,22 @@
   min-height: 74px;
 }
 
+.exam-free-answer {
+  display: grid;
+  gap: 6px;
+}
+
+.exam-answer-hint {
+  margin: 0;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 8px 9px;
+  font-size: 0.88rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
 .official-answer {
   display: grid;
   gap: 5px;

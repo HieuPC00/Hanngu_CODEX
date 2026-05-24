@@ -34,10 +34,12 @@ export type ExamQuestion = {
   difficulty: "easy" | "hard";
   tags: string | null;
   scored: boolean;
+  shown_count: number;
+  last_shown_at: string | null;
   created_at: string;
 };
 
-export type ExamQuestionDraft = Omit<ExamQuestion, "id" | "user_id" | "created_at"> & {
+export type ExamQuestionDraft = Omit<ExamQuestion, "id" | "user_id" | "shown_count" | "last_shown_at" | "created_at"> & {
   validationErrors: string[];
   validationWarnings: string[];
 };
@@ -73,6 +75,9 @@ export const examSectionIds = examSections.map((section) => section.id);
 export const examQuestionTypes: ExamQuestionType[] = ["choice_ab", "choice_abcd", "true_false", "fill_blank", "short_answer", "tone_mark"];
 
 export const examQuestionColumns =
+  "id,user_id,group_id,section,type,question,prompt,option_a,option_b,option_c,option_d,answer,audio_text,hanzi,pinyin,meaning,explanation,difficulty,tags,scored,shown_count,last_shown_at,created_at";
+
+export const legacyExamQuestionColumns =
   "id,user_id,group_id,section,type,question,prompt,option_a,option_b,option_c,option_d,answer,audio_text,hanzi,pinyin,meaning,explanation,difficulty,tags,scored,created_at";
 
 export const examManualPlaceholder = `***

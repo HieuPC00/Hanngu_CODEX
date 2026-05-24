@@ -78,14 +78,21 @@ create table if not exists public.exam_questions (
   difficulty public.item_difficulty not null default 'easy',
   tags text,
   scored boolean not null default true,
+  shown_count int not null default 0,
+  last_shown_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 alter table public.exam_questions
 add column if not exists group_id text;
+alter table public.exam_questions
+add column if not exists shown_count int not null default 0;
+alter table public.exam_questions
+add column if not exists last_shown_at timestamptz;
 
 create index if not exists exam_questions_user_section_idx on public.exam_questions(user_id, section);
 create index if not exists exam_questions_user_group_idx on public.exam_questions(user_id, group_id);
+create index if not exists exam_questions_frequency_idx on public.exam_questions(user_id, section, shown_count, last_shown_at);
 create index if not exists exam_questions_created_idx on public.exam_questions(user_id, created_at desc);
 
 alter table public.documents drop constraint if exists documents_user_id_fkey;
@@ -335,3 +342,35 @@ end;
 $$;
 
 grant execute on function public.increment_create_count(uuid) to anon, authenticated;
+
+create or replace function public.increment_exam_question_usage(
+  p_user_id uuid,
+  p_question_ids uuid[]
+)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated_count int;
+begin
+  if p_user_id not in (
+    '88d2c940-8702-41c9-8669-7b176f01c216'::uuid,
+    'b5e519d5-c39c-4f27-849d-d0d46db9d134'::uuid
+  ) then
+    raise exception 'Invalid shared account';
+  end if;
+
+  update public.exam_questions
+  set shown_count = shown_count + 1,
+      last_shown_at = now()
+  where user_id = p_user_id
+    and id = any(p_question_ids);
+
+  get diagnostics updated_count = row_count;
+  return updated_count;
+end;
+$$;
+
+grant execute on function public.increment_exam_question_usage(uuid, uuid[]) to anon, authenticated;

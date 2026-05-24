@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase-browser";
 import {
   examManualPlaceholder,
   examQuestionColumns,
+  legacyExamQuestionColumns,
   extraExamSections,
   isExamAnswerCorrect,
   isSharedListeningSection,
@@ -47,6 +48,8 @@ type ListeningGroup = {
 type ExamQuestionUnit = {
   key: string;
   questions: ExamQuestion[];
+  shownCount: number;
+  lastShownAt: string | null;
 };
 
 type ExamStats = {
@@ -61,6 +64,33 @@ const emptyStats: ExamStats = {
   extra: 0
 };
 const preferredVoiceKey = "hanngu-preferred-chinese-voice";
+const speechRoleLabels = ["男", "女", "问", "售货员", "老师", "学生", "A", "B", "C", "D", "甲", "乙"] as const;
+
+type SpeechRole = (typeof speechRoleLabels)[number] | null;
+
+type SpeechSegment = {
+  role: SpeechRole;
+  text: string;
+};
+
+function normalizeExamQuestionFrequency(question: ExamQuestion) {
+  return {
+    ...question,
+    shown_count: question.shown_count || 0,
+    last_shown_at: question.last_shown_at || null
+  };
+}
+
+function isMissingExamFrequencyColumnError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message || "")
+        : String(error || "");
+
+  return message.includes("shown_count") || message.includes("last_shown_at") || message.includes("schema cache");
+}
 
 export default function ExamClient() {
   const [view, setView] = useState<ExamView>("practice");
@@ -123,6 +153,15 @@ export default function ExamClient() {
   }
 
   async function loadAllExamQuestions() {
+    try {
+      return await loadAllExamQuestionsWithColumns(examQuestionColumns);
+    } catch (error) {
+      if (!isMissingExamFrequencyColumnError(error)) throw error;
+      return loadAllExamQuestionsWithColumns(legacyExamQuestionColumns);
+    }
+  }
+
+  async function loadAllExamQuestionsWithColumns(columns: string) {
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
     const pageSize = 1000;
@@ -131,13 +170,14 @@ export default function ExamClient() {
     for (let offset = 0; ; offset += pageSize) {
       const { data, error } = await supabase
         .from("exam_questions")
-        .select(examQuestionColumns)
+        .select(columns)
         .eq("user_id", ownerId)
         .order("created_at", { ascending: false })
         .range(offset, offset + pageSize - 1);
 
       if (error) throw error;
-      rows.push(...((data || []) as ExamQuestion[]));
+      const pageRows = (data || []) as unknown as ExamQuestion[];
+      rows.push(...pageRows.map(normalizeExamQuestionFrequency));
       if (!data || data.length < pageSize) return rows;
     }
   }
@@ -145,6 +185,7 @@ export default function ExamClient() {
   async function createExam() {
     const nextWarnings: string[] = [];
     const nextAttempt: AttemptSection[] = [];
+    const selectedQuestionIds: string[] = [];
 
     mainExamSections.forEach((form) => {
       const candidates = questions.filter((question) => question.section === form.id);
@@ -155,6 +196,7 @@ export default function ExamClient() {
       }
 
       if (selected.length) {
+        selectedQuestionIds.push(...selected.map((question) => question.id));
         nextAttempt.push({
           form,
           questions: selected.map((question, index) => ({
@@ -166,19 +208,21 @@ export default function ExamClient() {
       }
     });
 
-    extraExamSections.forEach((form) => {
-      const selected = selectQuestionsForExam(form, questions.filter((question) => question.section === form.id));
+    const extraForm = selectExtraExamSection(questions);
+    if (extraForm) {
+      const selected = selectQuestionsForExam(extraForm, questions.filter((question) => question.section === extraForm.id));
       if (selected.length) {
+        selectedQuestionIds.push(...selected.map((question) => question.id));
         nextAttempt.push({
-          form,
+          form: extraForm,
           questions: selected.map((question, index) => ({
-            instanceId: `${form.id}-${question.id}-${index}`,
+            instanceId: `${extraForm.id}-${question.id}-${index}`,
             question,
             userAnswer: ""
           }))
         });
       }
-    });
+    }
 
     if (!nextAttempt.length) {
       alert("Chưa có câu hỏi thi để tạo đề. Hãy thêm câu hỏi vào thư viện câu hỏi thi trước.");
@@ -190,6 +234,7 @@ export default function ExamClient() {
     setListenCounts({});
     setExamWarnings(nextWarnings);
     setView("practice");
+    await markExamQuestionsShown(selectedQuestionIds);
     await incrementCreateCount();
   }
 
@@ -278,6 +323,36 @@ export default function ExamClient() {
       await supabase.rpc("increment_create_count", { p_user_id: getBrowserOwnerId() });
     } catch {
       // Counting exam creation should never block taking the exam.
+    }
+  }
+
+  async function markExamQuestionsShown(questionIds: string[]) {
+    const uniqueIds = Array.from(new Set(questionIds));
+    if (!uniqueIds.length) return;
+
+    const now = new Date().toISOString();
+    const idSet = new Set(uniqueIds);
+
+    setQuestions((current) =>
+      current.map((question) =>
+        idSet.has(question.id)
+          ? {
+              ...question,
+              shown_count: (question.shown_count || 0) + 1,
+              last_shown_at: now
+            }
+          : question
+      )
+    );
+
+    try {
+      const supabase = createClient();
+      await supabase.rpc("increment_exam_question_usage", {
+        p_user_id: getBrowserOwnerId(),
+        p_question_ids: uniqueIds
+      });
+    } catch {
+      // Frequency tracking should not block taking the exam.
     }
   }
 
@@ -673,7 +748,7 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
 }
 
 function selectQuestionsForExam(form: ExamFormSection, candidates: ExamQuestion[]) {
-  const units = shuffleExamItems(buildExamQuestionUnits(candidates));
+  const units = sortExamUnitsByFrequency(shuffleExamItems(buildExamQuestionUnits(candidates)));
   const selected: ExamQuestion[] = [];
 
   for (const unit of units) {
@@ -682,6 +757,20 @@ function selectQuestionsForExam(form: ExamFormSection, candidates: ExamQuestion[
   }
 
   return selected;
+}
+
+function selectExtraExamSection(questions: ExamQuestion[]) {
+  const available = extraExamSections
+    .map((form) => ({
+      form,
+      units: buildExamQuestionUnits(questions.filter((question) => question.section === form.id))
+    }))
+    .filter((entry) => entry.units.length > 0);
+
+  if (!available.length) return null;
+
+  const ranked = shuffleExamItems(available).sort((left, right) => compareExamUnits(sectionUsageUnit(left.units), sectionUsageUnit(right.units)));
+  return ranked[0].form;
 }
 
 function buildExamQuestionUnits(candidates: ExamQuestion[]): ExamQuestionUnit[] {
@@ -698,13 +787,17 @@ function buildExamQuestionUnits(candidates: ExamQuestion[]): ExamQuestionUnit[] 
 
     units.set(key, {
       key,
-      questions: [question]
+      questions: [question],
+      shownCount: question.shown_count || 0,
+      lastShownAt: question.last_shown_at
     });
   });
 
   return Array.from(units.values()).map((unit) => ({
     ...unit,
-    questions: sortQuestionsInExamOrder(unit.questions)
+    questions: sortQuestionsInExamOrder(unit.questions),
+    shownCount: Math.min(...unit.questions.map((question) => question.shown_count || 0)),
+    lastShownAt: oldestLastShownAt(unit.questions.map((question) => question.last_shown_at))
   }));
 }
 
@@ -716,6 +809,34 @@ function examSelectionUnitKey(question: ExamQuestion) {
 
 function sortQuestionsInExamOrder(questions: ExamQuestion[]) {
   return [...questions].sort((left, right) => left.created_at.localeCompare(right.created_at));
+}
+
+function sortExamUnitsByFrequency(units: ExamQuestionUnit[]) {
+  return [...units].sort(compareExamUnits);
+}
+
+function compareExamUnits(left: Pick<ExamQuestionUnit, "shownCount" | "lastShownAt">, right: Pick<ExamQuestionUnit, "shownCount" | "lastShownAt">) {
+  return left.shownCount - right.shownCount || compareNullableDate(left.lastShownAt, right.lastShownAt);
+}
+
+function sectionUsageUnit(units: ExamQuestionUnit[]): Pick<ExamQuestionUnit, "shownCount" | "lastShownAt"> {
+  return {
+    shownCount: Math.min(...units.map((unit) => unit.shownCount)),
+    lastShownAt: oldestLastShownAt(units.map((unit) => unit.lastShownAt))
+  };
+}
+
+function oldestLastShownAt(values: Array<string | null>) {
+  const realValues = values.filter((value): value is string => Boolean(value));
+  if (!realValues.length) return null;
+  return realValues.sort(compareNullableDate)[0];
+}
+
+function compareNullableDate(left: string | null, right: string | null) {
+  if (!left && !right) return 0;
+  if (!left) return -1;
+  if (!right) return 1;
+  return new Date(left).getTime() - new Date(right).getTime();
 }
 
 function ListeningGroupBlock({
@@ -937,15 +1058,32 @@ function renderAnswerInput(question: ExamQuestion, answer: string, disabled: boo
     );
   }
 
+  const hint = answerInputHint(question);
+
   return (
-    <textarea
-      className="textarea exam-answer-textarea"
-      value={answer}
-      disabled={disabled}
-      onChange={(event) => onUpdateAnswer(event.target.value)}
-      placeholder={question.type === "tone_mark" ? "Nhập pinyin có dấu..." : "Nhập đáp án..."}
-    />
+    <div className="exam-free-answer">
+      {hint ? <p className="exam-answer-hint">{hint}</p> : null}
+      <textarea
+        className="textarea exam-answer-textarea"
+        value={answer}
+        disabled={disabled}
+        onChange={(event) => onUpdateAnswer(event.target.value)}
+        placeholder={answerInputPlaceholder(question)}
+      />
+    </div>
   );
+}
+
+function answerInputPlaceholder(question: ExamQuestion) {
+  if (question.type === "tone_mark") return "Nhập pinyin có dấu...";
+  if (question.type === "fill_blank") return "Ví dụ: 换钱; 买书";
+  return "Nhập đáp án...";
+}
+
+function answerInputHint(question: ExamQuestion) {
+  if (question.type === "fill_blank") return "Một chỗ trống: nhập đáp án. Nhiều chỗ trống: nhập theo thứ tự, cách nhau bằng dấu ;";
+  if (question.type === "tone_mark") return "Nghe câu rồi điền pinyin có dấu thanh cho phần cần kiểm tra.";
+  return "";
 }
 
 function OfficialAnswer({ item }: { item: AttemptQuestion }) {
@@ -995,45 +1133,120 @@ async function speakExamText(text: string, sectionId: string) {
   }
 
   const synth = window.speechSynthesis;
-  const speechText = prepareExamSpeechText(text);
-  const utterance = new SpeechSynthesisUtterance(speechText);
   const voices = await getAvailableVoices(synth);
-  const voice = findBestChineseVoice(voices);
-
-  if (voice) {
-    cachePreferredVoice(voice);
-    utterance.voice = voice;
-    utterance.lang = voice.lang;
-  } else {
-    utterance.lang = "zh-CN";
-  }
-
-  utterance.rate = speechRateForExamSection(sectionId, speechText);
-  utterance.pitch = 1;
-  utterance.onerror = (event) => {
-    if (event.error !== "interrupted" && event.error !== "canceled") {
-      alert("Thiết bị này không tìm thấy giọng đọc tiếng Trung. Hãy thử mở bằng Safari/Chrome mới hoặc bật giọng tiếng Trung trong cài đặt máy.");
-    }
-  };
+  const defaultVoice = findBestChineseVoice(voices);
+  const segments = prepareExamSpeechSegments(text);
+  let warned = false;
 
   synth.cancel();
   synth.resume();
-  synth.speak(utterance);
+
+  if (defaultVoice) cachePreferredVoice(defaultVoice);
+
+  for (const segment of segments) {
+    const voice = findBestChineseVoice(voices, segment.role) || defaultVoice;
+    await speakSpeechSegment(synth, segment, sectionId, voice, () => {
+      if (warned) return;
+      warned = true;
+      alert("Thiết bị này không tìm thấy giọng đọc tiếng Trung tốt. Hãy thử mở bằng Safari/Chrome mới hoặc bật giọng tiếng Trung trong cài đặt máy.");
+    });
+    await wait(speechPauseForExamSection(sectionId, segment.role));
+  }
 }
 
-function prepareExamSpeechText(text: string) {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join("\n");
+function prepareExamSpeechSegments(text: string): SpeechSegment[] {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+
+  const rolePattern = new RegExp(`(${speechRoleLabels.join("|")})\\s*[:：]`, "g");
+  const matches = Array.from(normalized.matchAll(rolePattern));
+
+  if (!matches.length) {
+    return splitSpeechTextIntoChunks(normalized).map((chunk) => ({ role: null, text: chunk }));
+  }
+
+  const segments: SpeechSegment[] = [];
+  const firstMatchIndex = matches[0].index || 0;
+  const intro = normalized.slice(0, firstMatchIndex).trim();
+  if (intro) {
+    splitSpeechTextIntoChunks(intro).forEach((chunk) => segments.push({ role: null, text: chunk }));
+  }
+
+  matches.forEach((match, index) => {
+    const label = normalizeSpeechRole(match[1]);
+    const start = (match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? matches[index + 1].index || normalized.length : normalized.length;
+    const content = normalized.slice(start, end).trim();
+
+    splitSpeechTextIntoChunks(content).forEach((chunk) => {
+      segments.push({ role: label, text: chunk });
+    });
+  });
+
+  return segments.filter((segment) => segment.text);
+}
+
+function splitSpeechTextIntoChunks(text: string) {
+  return (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [text])
+    .map((chunk) => chunk.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function normalizeSpeechRole(value: string): SpeechRole {
+  return speechRoleLabels.includes(value as (typeof speechRoleLabels)[number]) ? (value as SpeechRole) : null;
+}
+
+function speakSpeechSegment(
+  synth: SpeechSynthesis,
+  segment: SpeechSegment,
+  sectionId: string,
+  voice: SpeechSynthesisVoice | undefined,
+  onVoiceError: () => void
+) {
+  return new Promise<void>((resolve) => {
+    const utterance = new SpeechSynthesisUtterance(segment.text);
+
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang;
+    } else {
+      utterance.lang = "zh-CN";
+    }
+
+    utterance.rate = speechRateForExamSection(sectionId, segment.text);
+    utterance.pitch = speechPitchForRole(segment.role);
+    utterance.onend = () => resolve();
+    utterance.onerror = (event) => {
+      if (event.error !== "interrupted" && event.error !== "canceled") onVoiceError();
+      resolve();
+    };
+
+    synth.speak(utterance);
+  });
 }
 
 function speechRateForExamSection(sectionId: string, text: string) {
-  if (sectionId === "p1_1_word_sound") return 0.72;
-  if (sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 0.78;
-  if (text.length > 120) return 0.9;
-  return 0.84;
+  if (sectionId === "p1_1_word_sound") return 0.68;
+  if (sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 0.72;
+  if (sectionId === "p2_4_dialogue_choice" || sectionId === "p2_5_dialogue_tf") return 0.8;
+  if (text.length > 120) return 0.84;
+  return 0.78;
+}
+
+function speechPauseForExamSection(sectionId: string, role: SpeechRole) {
+  if (role) return 220;
+  if (sectionId === "p1_1_word_sound" || sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 320;
+  return 180;
+}
+
+function speechPitchForRole(role: SpeechRole) {
+  if (role === "男" || role === "B" || role === "D" || role === "乙") return 0.96;
+  if (role === "女" || role === "A" || role === "C" || role === "甲") return 1.04;
+  return 1;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function getAvailableVoices(synth: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
@@ -1078,22 +1291,22 @@ function readPreferredVoiceId() {
   }
 }
 
-function findBestChineseVoice(voices: SpeechSynthesisVoice[]) {
+function findBestChineseVoice(voices: SpeechSynthesisVoice[], role: SpeechRole = null) {
   const candidates = voices
-    .map((voice) => ({ voice, score: scoreChineseVoice(voice, readPreferredVoiceId()) }))
+    .map((voice) => ({ voice, score: scoreChineseVoice(voice, readPreferredVoiceId(), role) }))
     .filter((candidate) => candidate.score > 0)
     .sort((left, right) => right.score - left.score);
 
   return candidates[0]?.voice;
 }
 
-function scoreChineseVoice(voice: SpeechSynthesisVoice, preferredId: string | null) {
+function scoreChineseVoice(voice: SpeechSynthesisVoice, preferredId: string | null, role: SpeechRole) {
   const lang = voice.lang.toLowerCase();
   const name = voice.name.toLowerCase();
   const id = voice.voiceURI || voice.name;
   let score = 0;
 
-  if (/^zh[-_]?cn/.test(lang) || /hans|china|mainland|普通话|中国|大陆/.test(name)) score += 80;
+  if (/^zh[-_]?cn/.test(lang) || /hans|china|mainland|mandarin|普通话|中国|大陆/.test(name)) score += 90;
   else if (/^zh[-_]?sg/.test(lang)) score += 66;
   else if (/^zh[-_]?tw/.test(lang) || /taiwan|國語|台湾/.test(name)) score += 56;
   else if (/^zh[-_]?hk/.test(lang) || /hong kong|香港/.test(name)) score += 36;
@@ -1103,11 +1316,26 @@ function scoreChineseVoice(voice: SpeechSynthesisVoice, preferredId: string | nu
   if (score === 0) return 0;
 
   if (preferredId && id === preferredId) score += 8;
-  if (voice.localService) score += 6;
-  if (/natural|neural|premium|enhanced|siri|google|microsoft|xiaoxiao|xiaoyi|xiaobei|xiaohan|yunxi|tingting|mei-?jia|li-?mu|mandarin|普通话/.test(name)) {
-    score += 14;
+  if (/natural|neural|premium|enhanced|siri|google|microsoft|online/.test(name)) score += 24;
+  if (/xiaoxiao|xiaoyi|xiaobei|xiaohan|yunxi|yunyang|yunjian|tingting|mei-?jia|sin-?ji|li-?mu|mandarin|普通话/.test(name)) {
+    score += 18;
   }
   if (/compact|eloquence|robot|cantonese|粤|粵/.test(name)) score -= 20;
 
+  if (isFemaleSpeechRole(role) && /female|woman|xiaoxiao|xiaoyi|xiaobei|xiaohan|tingting|mei-?jia|sin-?ji|huihui|yaoyao|yuna|女/.test(name)) {
+    score += 12;
+  }
+  if (isMaleSpeechRole(role) && /male|man|yunxi|yunyang|yunjian|kangkang|li-?mu|男/.test(name)) {
+    score += 12;
+  }
+
   return score;
+}
+
+function isFemaleSpeechRole(role: SpeechRole) {
+  return role === "女" || role === "A" || role === "C" || role === "甲";
+}
+
+function isMaleSpeechRole(role: SpeechRole) {
+  return role === "男" || role === "B" || role === "D" || role === "乙";
 }
