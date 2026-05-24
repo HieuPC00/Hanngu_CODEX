@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import {
+  convertAccentedPinyinToNumbered,
   examManualPlaceholder,
   examQuestionColumns,
   legacyExamQuestionColumns,
@@ -520,7 +521,7 @@ export default function ExamClient() {
                     {item.group_id ? <span>Nhóm nghe: {item.group_id}</span> : null}
                   </div>
                   <strong>{item.question}</strong>
-                  {item.prompt ? <p>{item.prompt}</p> : null}
+                  {displayPromptText(item) ? <p>{displayPromptText(item)}</p> : null}
                   <small>Đáp án: {item.answer}</small>
                   {item.validationErrors.length ? (
                     <div className="validation-box">
@@ -724,7 +725,7 @@ function QuestionLibraryView({ questions, stats, loading, onRefresh }: { questio
                 {question.group_id ? <span>Nhóm nghe: {question.group_id}</span> : null}
               </div>
               <strong>{question.question}</strong>
-              {question.prompt ? <p>{question.prompt}</p> : null}
+              {displayPromptText(question) ? <p>{displayPromptText(question)}</p> : null}
               <small>Đáp án: {question.answer}</small>
               {question.hanzi ? <div className="exam-hanzi-preview">{question.hanzi}</div> : null}
             </article>
@@ -923,7 +924,7 @@ function ExamQuestionCard({
         />
       ) : null}
       {questionText ? <strong>{questionText}</strong> : null}
-      {question.prompt ? <p className="exam-prompt">{question.prompt}</p> : null}
+      {displayPromptText(question) ? <p className="exam-prompt">{displayPromptText(question)}</p> : null}
       {renderAnswerInput(question, item.userAnswer, submitted, onUpdateAnswer)}
       {submitted ? <OfficialAnswer item={item} /> : null}
     </article>
@@ -1027,6 +1028,58 @@ const genericQuestionTexts = new Set(
 function displayQuestionText(question: ExamQuestion) {
   if (genericQuestionTexts.has(normalizeGenericQuestionText(question.question))) return "";
   return question.question;
+}
+
+type PromptDisplayQuestion = Pick<ExamQuestion, "type" | "prompt" | "pinyin" | "answer">;
+
+function displayPromptText(question: PromptDisplayQuestion) {
+  if (question.type === "tone_mark") return buildToneMarkPrompt(question) || question.prompt;
+  return question.prompt;
+}
+
+function buildToneMarkPrompt(question: PromptDisplayQuestion) {
+  const source = question.pinyin?.trim();
+  if (!source) return "";
+
+  const targetWords = firstAnswerAlternative(question.answer)
+    .split(/[;；]/)
+    .map(normalizePinyinToneTarget)
+    .filter(Boolean);
+
+  if (!targetWords.length) return source;
+
+  const targetSet = new Set(targetWords);
+
+  return source
+    .split(/(\s+|[;；/,、，。？！?!：:"'“”‘’《》〈〉（）()]+)/)
+    .map((part) => {
+      if (!/[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüḿńňǹ]/.test(part)) return part;
+      return targetSet.has(normalizePinyinToneTarget(part)) ? stripPinyinToneMarks(part) : part;
+    })
+    .join("");
+}
+
+function firstAnswerAlternative(answer: string) {
+  return answer.split("/")[0]?.trim() || answer;
+}
+
+function normalizePinyinToneTarget(value: string) {
+  return convertAccentedPinyinToNumbered(value)
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/u\u0308/g, "v")
+    .replace(/ü/g, "v")
+    .replace(/u:/g, "v")
+    .replace(/([a-zv]+)5/g, "$1")
+    .replace(/[^a-zv0-9]/g, "")
+    .trim();
+}
+
+function stripPinyinToneMarks(value: string) {
+  const stripped = convertAccentedPinyinToNumbered(value)
+    .replace(/\d/g, "")
+    .replace(/v/g, "ü");
+  return /^[A-ZĀÁǍÀĒÉĚÈĪÍǏÌŌÓǑÒŪÚǓÙǕǗǙǛÜ]/.test(value) ? `${stripped.charAt(0).toUpperCase()}${stripped.slice(1)}` : stripped;
 }
 
 function normalizeGenericQuestionText(value: string) {

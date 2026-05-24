@@ -308,12 +308,22 @@ function validateExamQuestionDraftWarnings(item: ExamQuestionDraft) {
   if ((item.type === "fill_blank" || item.type === "short_answer" || item.type === "tone_mark") && (item.option_a || item.option_b || item.option_c || item.option_d)) {
     warnings.push("Loại câu nhập tự do không dùng A/B/C/D; các lựa chọn sẽ bị bỏ qua.");
   }
+  if (item.type === "tone_mark" && !item.pinyin?.trim()) {
+    warnings.push("Câu điền thanh điệu nên có pinyin có dấu để app chỉ bỏ dấu ở phần cần kiểm tra.");
+  }
+  if (item.type === "tone_mark" && item.pinyin?.trim() && !hasPinyinToneMarks(item.pinyin)) {
+    warnings.push("pinyin của câu điền thanh điệu đang không có dấu. App sẽ không tự khôi phục được dấu cho phần còn lại của câu.");
+  }
 
   return warnings;
 }
 
 function hasCjk(value: string) {
   return /[\u3400-\u9fff]/.test(value);
+}
+
+function hasPinyinToneMarks(value: string) {
+  return /[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüḿńňǹ]/i.test(value);
 }
 
 export function normalizeExamAnswer(value: string) {
@@ -483,7 +493,7 @@ function normalizePinyinNumberAnswer(value: string) {
     .trim();
 }
 
-function convertAccentedPinyinToNumbered(value: string) {
+export function convertAccentedPinyinToNumbered(value: string) {
   return value
     .normalize("NFC")
     .split(/(\s+|[;；/,、，。？！?!：:"'“”‘’《》〈〉（）()]+)/)
