@@ -657,10 +657,6 @@ function PracticeView({
                 <div>
                   <h2>{section.form.title}</h2>
                   <p>{section.form.subtitle}</p>
-                  <div className="exam-section-instruction">
-                    <span>{section.form.title}</span>
-                    <span>{section.form.subtitle}</span>
-                  </div>
                 </div>
                 <span>{section.form.scored ? "Tính điểm" : "Luyện thêm"}</span>
               </header>
@@ -907,6 +903,7 @@ function ExamQuestionCard({
 }) {
   const question = item.question;
   const groupKey = audioGroupKey(question, item.instanceId);
+  const questionText = displayQuestionText(question);
 
   return (
     <article className={submitted ? resultClassName(item) : "exam-question"}>
@@ -925,7 +922,7 @@ function ExamQuestionCard({
           onListenAudio={onListenAudio}
         />
       ) : null}
-      <strong>{displayQuestionText(question, submitted)}</strong>
+      {questionText ? <strong>{questionText}</strong> : null}
       {question.prompt ? <p className="exam-prompt">{question.prompt}</p> : null}
       {renderAnswerInput(question, item.userAnswer, submitted, onUpdateAnswer)}
       {submitted ? <OfficialAnswer item={item} /> : null}
@@ -1013,9 +1010,30 @@ function stableHash(value: string) {
   return Math.abs(hash).toString(36);
 }
 
-function displayQuestionText(question: ExamQuestion, submitted: boolean) {
-  if (!submitted && question.section === "p2_4_dialogue_choice") return "Nghe hội thoại rồi chọn đáp án đúng.";
+const genericQuestionTexts = new Set(
+  [
+    "Nghe hội thoại rồi chọn đáp án đúng.",
+    "Nghe câu rồi chọn đáp án đúng.",
+    "Nghe câu rồi điền pinyin số cho phần cần kiểm tra.",
+    "选择你在句中听到的词语",
+    "选择你听到的句子",
+    "听后标出句中画线词语的声调",
+    "听后填空",
+    ...mainExamSections.flatMap((section) => [section.title, section.subtitle]),
+    ...extraExamSections.flatMap((section) => [section.title, section.subtitle])
+  ].map(normalizeGenericQuestionText)
+);
+
+function displayQuestionText(question: ExamQuestion) {
+  if (genericQuestionTexts.has(normalizeGenericQuestionText(question.question))) return "";
   return question.question;
+}
+
+function normalizeGenericQuestionText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[。？！?!，,、；;：:\s"'“”‘’《》〈〉（）().]/g, "")
+    .trim();
 }
 
 function resultClassName(item: AttemptQuestion) {
@@ -1082,7 +1100,6 @@ function answerInputPlaceholder(question: ExamQuestion) {
 
 function answerInputHint(question: ExamQuestion) {
   if (question.type === "fill_blank") return "Một chỗ trống: nhập đáp án. Nhiều chỗ trống: nhập theo thứ tự, cách nhau bằng dấu ;";
-  if (question.type === "tone_mark") return "Nghe câu rồi điền pinyin số cho phần cần kiểm tra. Ví dụ: jīntiān -> jin1tian1. Nhiều từ thì cách nhau bằng dấu ;";
   return "";
 }
 

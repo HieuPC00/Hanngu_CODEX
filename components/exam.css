@@ -136,22 +136,6 @@
   white-space: nowrap;
 }
 
-.exam-section-instruction {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 7px;
-}
-
-.exam-section-instruction span {
-  min-height: 24px;
-  border-radius: 999px;
-  padding: 0 8px;
-  background: #eff6ff;
-  color: #2563eb;
-  font-size: 0.78rem;
-}
-
 .exam-question,
 .exam-question-card,
 .exam-library-card {
