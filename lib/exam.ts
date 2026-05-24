@@ -108,6 +108,19 @@ explanation: Đoạn nghe nói họ đi 书店, không phải 商店.
 difficulty: easy
 tags: nghe hiểu, đúng sai, hội thoại
 ***
+section: p1_3_tone_mark
+type: tone_mark
+question: 听后标出句中画线词语的声调
+prompt: Wo jintian tai gaoxing le.
+answer: jin1tian1; gao1xing4
+audio_text: 我今天太高兴了。
+hanzi: 我今天太高兴了。
+pinyin: wǒ jīntiān tài gāoxìng le.
+meaning: Hôm nay tôi rất vui.
+explanation: Đáp án điền thanh điệu dùng pinyin số. Nhiều từ thì cách nhau bằng dấu ;.
+difficulty: medium
+tags: thanh điệu, pinyin số
+***
 section: extra_quick_answer
 type: short_answer
 question: 你怎么来学校？
@@ -323,6 +336,10 @@ export function isExamAnswerCorrect(input: string, answer: string, type: ExamQue
     return normalizeBooleanAnswer(trimmedInput) === normalizeBooleanAnswer(answer);
   }
 
+  if (type === "tone_mark") {
+    return splitAnswerAlternatives(answer).some((alternative) => isPinyinNumberAlternativeCorrect(trimmedInput, alternative));
+  }
+
   return splitAnswerAlternatives(answer).some((alternative) => isTextAlternativeCorrect(trimmedInput, alternative));
 }
 
@@ -360,6 +377,184 @@ function isTextAlternativeCorrect(input: string, alternative: string) {
   }
 
   return false;
+}
+
+const pinyinToneLetters: Record<string, { base: string; tone: string }> = {
+  ā: { base: "a", tone: "1" },
+  á: { base: "a", tone: "2" },
+  ǎ: { base: "a", tone: "3" },
+  à: { base: "a", tone: "4" },
+  ē: { base: "e", tone: "1" },
+  é: { base: "e", tone: "2" },
+  ě: { base: "e", tone: "3" },
+  è: { base: "e", tone: "4" },
+  ī: { base: "i", tone: "1" },
+  í: { base: "i", tone: "2" },
+  ǐ: { base: "i", tone: "3" },
+  ì: { base: "i", tone: "4" },
+  ō: { base: "o", tone: "1" },
+  ó: { base: "o", tone: "2" },
+  ǒ: { base: "o", tone: "3" },
+  ò: { base: "o", tone: "4" },
+  ū: { base: "u", tone: "1" },
+  ú: { base: "u", tone: "2" },
+  ǔ: { base: "u", tone: "3" },
+  ù: { base: "u", tone: "4" },
+  ǖ: { base: "v", tone: "1" },
+  ǘ: { base: "v", tone: "2" },
+  ǚ: { base: "v", tone: "3" },
+  ǜ: { base: "v", tone: "4" },
+  ḿ: { base: "m", tone: "2" },
+  ń: { base: "n", tone: "2" },
+  ň: { base: "n", tone: "3" },
+  ǹ: { base: "n", tone: "4" }
+};
+
+const pinyinInitials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w", ""];
+const pinyinFinals = [
+  "a",
+  "o",
+  "e",
+  "ai",
+  "ei",
+  "ao",
+  "ou",
+  "an",
+  "en",
+  "ang",
+  "eng",
+  "er",
+  "i",
+  "ia",
+  "ie",
+  "iao",
+  "iu",
+  "ian",
+  "in",
+  "iang",
+  "ing",
+  "iong",
+  "u",
+  "ua",
+  "uo",
+  "uai",
+  "ui",
+  "uan",
+  "un",
+  "uang",
+  "ong",
+  "v",
+  "ve",
+  "van",
+  "vn",
+  "m",
+  "n",
+  "ng"
+];
+const validPinyinSyllables = new Set(pinyinInitials.flatMap((initial) => pinyinFinals.map((final) => `${initial}${final}`)));
+
+function isPinyinNumberAlternativeCorrect(input: string, alternative: string) {
+  if (alternative.includes(";") || alternative.includes("；")) {
+    const expectedParts = alternative
+      .split(/[;；]/)
+      .map((part) => normalizePinyinNumberAnswer(part))
+      .filter(Boolean);
+    const inputParts = input
+      .split(/[;；\n]/)
+      .map((part) => normalizePinyinNumberAnswer(part))
+      .filter(Boolean);
+
+    return expectedParts.length === inputParts.length && expectedParts.every((part, index) => part === inputParts[index]);
+  }
+
+  return normalizePinyinNumberAnswer(input) === normalizePinyinNumberAnswer(alternative);
+}
+
+function normalizePinyinNumberAnswer(value: string) {
+  return convertAccentedPinyinToNumbered(value)
+    .toLowerCase()
+    .normalize("NFC")
+    .replace(/u\u0308/g, "v")
+    .replace(/ü/g, "v")
+    .replace(/u:/g, "v")
+    .replace(/([a-zv]+)5/g, "$1")
+    .replace(/[。？！?!，,、：:\s"'“”‘’《》〈〉（）()]/g, "")
+    .trim();
+}
+
+function convertAccentedPinyinToNumbered(value: string) {
+  return value
+    .normalize("NFC")
+    .split(/(\s+|[;；/,、，。？！?!：:"'“”‘’《》〈〉（）()]+)/)
+    .map((part) => (/[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜüḿńňǹ]/.test(part) ? convertPinyinTokenToNumbered(part) : part))
+    .join("");
+}
+
+function convertPinyinTokenToNumbered(token: string) {
+  const normalizedToken = token.toLowerCase().normalize("NFC").replace(/u:/g, "v").replace(/ü/g, "v");
+  if (/\d/.test(normalizedToken) && !/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜḿńňǹ]/.test(normalizedToken)) {
+    return normalizedToken.replace(/u\u0308/g, "v");
+  }
+
+  let base = "";
+  const tonesByIndex = new Map<number, string>();
+
+  Array.from(normalizedToken).forEach((char) => {
+    const toneLetter = pinyinToneLetters[char];
+    if (toneLetter) {
+      base += toneLetter.base;
+      tonesByIndex.set(base.length - 1, toneLetter.tone);
+      return;
+    }
+
+    if (/[a-zv]/.test(char)) {
+      base += char;
+    }
+  });
+
+  if (!base) return normalizedToken;
+  if (!tonesByIndex.size) return base;
+
+  let cursor = 0;
+  return segmentPinyinWord(base)
+    .map((syllable) => {
+      const tone = findToneInSyllable(tonesByIndex, cursor, cursor + syllable.length);
+      cursor += syllable.length;
+      return `${syllable}${tone || ""}`;
+    })
+    .join("");
+}
+
+function segmentPinyinWord(value: string) {
+  const segments: string[] = [];
+
+  for (let index = 0; index < value.length; ) {
+    let match = "";
+    const maxEnd = Math.min(value.length, index + 6);
+
+    for (let end = maxEnd; end > index; end -= 1) {
+      const candidate = value.slice(index, end);
+      if (validPinyinSyllables.has(candidate)) {
+        match = candidate;
+        break;
+      }
+    }
+
+    const syllable = match || value.slice(index, index + 1);
+    segments.push(syllable);
+    index += syllable.length;
+  }
+
+  return segments;
+}
+
+function findToneInSyllable(tonesByIndex: Map<number, string>, start: number, end: number) {
+  for (let index = start; index < end; index += 1) {
+    const tone = tonesByIndex.get(index);
+    if (tone) return tone;
+  }
+
+  return "";
 }
 
 export function shuffleExamItems<T>(items: T[]) {

@@ -1075,14 +1075,14 @@ function renderAnswerInput(question: ExamQuestion, answer: string, disabled: boo
 }
 
 function answerInputPlaceholder(question: ExamQuestion) {
-  if (question.type === "tone_mark") return "Nhập pinyin có dấu...";
+  if (question.type === "tone_mark") return "Ví dụ: jin1tian1; gao1xing4";
   if (question.type === "fill_blank") return "Ví dụ: 换钱; 买书";
   return "Nhập đáp án...";
 }
 
 function answerInputHint(question: ExamQuestion) {
   if (question.type === "fill_blank") return "Một chỗ trống: nhập đáp án. Nhiều chỗ trống: nhập theo thứ tự, cách nhau bằng dấu ;";
-  if (question.type === "tone_mark") return "Nghe câu rồi điền pinyin có dấu thanh cho phần cần kiểm tra.";
+  if (question.type === "tone_mark") return "Nghe câu rồi điền pinyin số cho phần cần kiểm tra. Ví dụ: jīntiān -> jin1tian1. Nhiều từ thì cách nhau bằng dấu ;";
   return "";
 }
 
@@ -1187,7 +1187,29 @@ function prepareExamSpeechSegments(text: string): SpeechSegment[] {
 }
 
 function splitSpeechTextIntoChunks(text: string) {
-  return (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [text])
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return [];
+  if (cleaned.length <= 180) return [cleaned];
+
+  const sentences = cleaned.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [cleaned];
+  const chunks: string[] = [];
+  let current = "";
+
+  sentences.forEach((sentence) => {
+    const next = sentence.trim();
+    if (!next) return;
+
+    if (current && `${current}${next}`.length > 150) {
+      chunks.push(current);
+      current = next;
+      return;
+    }
+
+    current = current ? `${current}${next}` : next;
+  });
+
+  if (current) chunks.push(current);
+  return chunks
     .map((chunk) => chunk.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 }
@@ -1213,8 +1235,9 @@ function speakSpeechSegment(
       utterance.lang = "zh-CN";
     }
 
-    utterance.rate = speechRateForExamSection(sectionId, segment.text);
+    utterance.rate = speechRateForExamSection(sectionId, segment.text, segment.role);
     utterance.pitch = speechPitchForRole(segment.role);
+    utterance.volume = 1;
     utterance.onend = () => resolve();
     utterance.onerror = (event) => {
       if (event.error !== "interrupted" && event.error !== "canceled") onVoiceError();
@@ -1225,23 +1248,24 @@ function speakSpeechSegment(
   });
 }
 
-function speechRateForExamSection(sectionId: string, text: string) {
-  if (sectionId === "p1_1_word_sound") return 0.68;
-  if (sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 0.72;
-  if (sectionId === "p2_4_dialogue_choice" || sectionId === "p2_5_dialogue_tf") return 0.8;
-  if (text.length > 120) return 0.84;
-  return 0.78;
+function speechRateForExamSection(sectionId: string, text: string, role: SpeechRole) {
+  if (sectionId === "p1_1_word_sound") return 0.76;
+  if (sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 0.78;
+  if (role) return 0.84;
+  if (sectionId === "p2_4_dialogue_choice" || sectionId === "p2_5_dialogue_tf") return 0.84;
+  if (text.length > 120) return 0.86;
+  return 0.82;
 }
 
 function speechPauseForExamSection(sectionId: string, role: SpeechRole) {
-  if (role) return 220;
-  if (sectionId === "p1_1_word_sound" || sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 320;
-  return 180;
+  if (role) return 420;
+  if (sectionId === "p1_1_word_sound" || sectionId === "p1_2_sentence_sound" || sectionId === "p1_3_tone_mark") return 260;
+  return 220;
 }
 
 function speechPitchForRole(role: SpeechRole) {
-  if (role === "男" || role === "B" || role === "D" || role === "乙") return 0.96;
-  if (role === "女" || role === "A" || role === "C" || role === "甲") return 1.04;
+  if (role === "男" || role === "B" || role === "D" || role === "乙") return 0.98;
+  if (role === "女" || role === "A" || role === "C" || role === "甲") return 1.02;
   return 1;
 }
 
@@ -1315,7 +1339,8 @@ function scoreChineseVoice(voice: SpeechSynthesisVoice, preferredId: string | nu
 
   if (score === 0) return 0;
 
-  if (preferredId && id === preferredId) score += 8;
+  if (preferredId && id === preferredId) score += 2;
+  if (!voice.localService) score += 10;
   if (/natural|neural|premium|enhanced|siri|google|microsoft|online/.test(name)) score += 24;
   if (/xiaoxiao|xiaoyi|xiaobei|xiaohan|yunxi|yunyang|yunjian|tingting|mei-?jia|sin-?ji|li-?mu|mandarin|普通话/.test(name)) {
     score += 18;
