@@ -437,6 +437,7 @@ const pinyinFinals = [
   "u",
   "ua",
   "uo",
+  "ue",
   "uai",
   "ui",
   "uan",
