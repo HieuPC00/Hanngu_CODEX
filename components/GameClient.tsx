@@ -46,9 +46,9 @@ type Point = {
 const gameSize = 10;
 const candidatePageSize = 1000;
 const writerSize = 220;
-const handwritingMatchThreshold = 0.078;
-const handwritingCoverageThreshold = 0.93;
-const handwritingStrokeCoverageThreshold = 0.72;
+const handwritingMatchThreshold = 0.09;
+const handwritingCoverageThreshold = 0.9;
+const handwritingStrokeCoverageThreshold = 0.66;
 const handwritingStrokeReverseCoverageThreshold = 0.32;
 const handwritingPointCoverageRadius = 0.065;
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
@@ -930,7 +930,7 @@ function scoreFreehandWriting(userStrokes: Point[][], targetStrokes: Point[][]) 
   );
   const coverage = pointCoverage(targetPoints, userPoints, handwritingPointCoverageRadius);
   const missingStrokeCount = targetStrokePointGroups.filter(
-    (strokePoints) => !hasMatchingStroke(strokePoints, userStrokePointGroups, handwritingPointCoverageRadius)
+    (strokePoints) => !hasCoveredTargetStroke(strokePoints, userPoints, userStrokePointGroups, handwritingPointCoverageRadius)
   ).length;
 
   return {
@@ -938,6 +938,13 @@ function scoreFreehandWriting(userStrokes: Point[][], targetStrokes: Point[][]) 
     coverage,
     missingStrokeCount
   };
+}
+
+function hasCoveredTargetStroke(requiredStroke: Point[], userPoints: Point[], userStrokes: Point[][], radius: number) {
+  const totalCoverage = pointCoverage(requiredStroke, userPoints, radius * 1.1);
+  if (totalCoverage >= handwritingStrokeCoverageThreshold) return true;
+
+  return hasMatchingStroke(requiredStroke, userStrokes, radius);
 }
 
 function hasMatchingStroke(requiredStroke: Point[], drawnStrokes: Point[][], radius: number) {
