@@ -23,7 +23,7 @@ type LessonMode = "study" | "review";
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
 const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 const lessonSize = 10;
-const lessonCandidateLimit = 60;
+const candidatePageSize = 1000;
 const preferredVoiceKey = "hanngu-preferred-chinese-voice";
 
 export default function StudyHome() {
@@ -92,31 +92,17 @@ export default function StudyHome() {
 
   async function createLesson() {
     setLoading(true);
-    const supabase = createClient();
     const ownerId = getBrowserOwnerId();
 
-    let query = supabase
-      .from("items")
-      .select(itemColumns)
-      .eq("user_id", ownerId)
-      .lte("mastery", 5)
-      .order("shown_count", { ascending: true })
-      .order("last_shown_at", { ascending: true, nullsFirst: true })
-      .limit(lessonCandidateLimit);
-
-    if (difficultyFilter !== "all") {
-      query = query.eq("difficulty", difficultyFilter);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
+    let candidates: StudyItem[] = [];
+    try {
+      candidates = await fetchLessonCandidates(ownerId, difficultyFilter);
+    } catch {
       setLoading(false);
       alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
       return;
     }
 
-    const candidates = Array.isArray(data) ? (data as StudyItem[]) : [];
     const selectedItems = selectLessonItems(candidates, lessonSize);
     if (!selectedItems.length) {
       setLoading(false);
@@ -465,6 +451,39 @@ function labelType(type: StudyItem["type"]) {
   if (type === "dialogue") return "Hội thoại";
   if (type === "word") return "Từ vựng";
   return "Câu";
+}
+
+async function fetchLessonCandidates(ownerId: string, difficultyFilter: DifficultyFilter) {
+  const supabase = createClient();
+  const candidates: StudyItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from("items")
+      .select(itemColumns)
+      .eq("user_id", ownerId)
+      .lte("mastery", 5)
+      .order("shown_count", { ascending: true })
+      .order("last_shown_at", { ascending: true, nullsFirst: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + candidatePageSize - 1);
+
+    if (difficultyFilter !== "all") {
+      query = query.eq("difficulty", difficultyFilter);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const page = Array.isArray(data) ? (data as StudyItem[]) : [];
+    candidates.push(...page);
+
+    if (page.length < candidatePageSize) break;
+    offset += candidatePageSize;
+  }
+
+  return candidates;
 }
 
 function selectLessonItems(candidates: StudyItem[], size: number) {

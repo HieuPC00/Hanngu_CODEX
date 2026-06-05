@@ -44,7 +44,7 @@ type Point = {
 };
 
 const gameSize = 10;
-const candidateLimit = 160;
+const candidatePageSize = 1000;
 const writerSize = 220;
 const handwritingMatchThreshold = 0.078;
 const handwritingCoverageThreshold = 0.93;
@@ -160,24 +160,7 @@ export default function GameClient() {
     try {
       const supabase = createClient();
       const ownerId = getBrowserOwnerId();
-      let query = supabase
-        .from("items")
-        .select(itemColumns)
-        .eq("user_id", ownerId)
-        .eq("type", "word")
-        .lte("mastery", 5)
-        .order("shown_count", { ascending: true })
-        .order("last_shown_at", { ascending: true, nullsFirst: true })
-        .limit(candidateLimit);
-
-      if (difficultyFilter !== "all") {
-        query = query.eq("difficulty", difficultyFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const candidates = (Array.isArray(data) ? (data as StudyItem[]) : []).filter((item) => isUsableWord(item, gameMode));
+      const candidates = (await fetchGameCandidates(ownerId, difficultyFilter)).filter((item) => isUsableWord(item, gameMode));
       const selectedItems = selectGameItems(candidates, Math.min(gameSize, candidates.length));
 
       if (!selectedItems.length) {
@@ -761,6 +744,40 @@ function ResultStat({ label, value, tone }: { label: string; value: number; tone
       <strong>{value}</strong>
     </div>
   );
+}
+
+async function fetchGameCandidates(ownerId: string, difficultyFilter: DifficultyFilter) {
+  const supabase = createClient();
+  const candidates: StudyItem[] = [];
+  let offset = 0;
+
+  while (true) {
+    let query = supabase
+      .from("items")
+      .select(itemColumns)
+      .eq("user_id", ownerId)
+      .eq("type", "word")
+      .lte("mastery", 5)
+      .order("shown_count", { ascending: true })
+      .order("last_shown_at", { ascending: true, nullsFirst: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + candidatePageSize - 1);
+
+    if (difficultyFilter !== "all") {
+      query = query.eq("difficulty", difficultyFilter);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const page = Array.isArray(data) ? (data as StudyItem[]) : [];
+    candidates.push(...page);
+
+    if (page.length < candidatePageSize) break;
+    offset += candidatePageSize;
+  }
+
+  return candidates;
 }
 
 function selectGameItems(candidates: StudyItem[], size: number) {
