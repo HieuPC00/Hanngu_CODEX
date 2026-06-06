@@ -312,7 +312,17 @@
   gap: 9px;
   overflow: visible;
   padding: 10px;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+body.is-writing-hanzi {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .writer-panel.wrong {
@@ -351,9 +361,14 @@
   width: 220px;
   height: 220px;
   touch-action: none;
+  overscroll-behavior: contain;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 16px;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
   background:
     linear-gradient(to right, transparent calc(50% - 0.5px), rgba(37, 99, 235, 0.12) calc(50% - 0.5px), rgba(37, 99, 235, 0.12) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
     linear-gradient(to bottom, transparent calc(50% - 0.5px), rgba(37, 99, 235, 0.12) calc(50% - 0.5px), rgba(37, 99, 235, 0.12) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
@@ -366,6 +381,9 @@
   inset: 0;
   width: 220px;
   height: 220px;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .writer-outline {
@@ -383,6 +401,7 @@
   z-index: 2;
   touch-action: none;
   cursor: crosshair;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .writer-actions {

@@ -154,6 +154,33 @@ export default function GameClient() {
     };
   }, [status, gameMode, currentQuestion?.item.id, currentWriteChar, writeCharIndex, writeAnswered]);
 
+  useEffect(() => {
+    const canvas = writerCanvasRef.current;
+    if (!canvas) return;
+
+    const preventTouchDefault = (event: TouchEvent) => {
+      event.preventDefault();
+    };
+
+    canvas.addEventListener("touchstart", preventTouchDefault, { passive: false });
+    canvas.addEventListener("touchmove", preventTouchDefault, { passive: false });
+    canvas.addEventListener("touchend", preventTouchDefault, { passive: false });
+    canvas.addEventListener("touchcancel", preventTouchDefault, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("touchstart", preventTouchDefault);
+      canvas.removeEventListener("touchmove", preventTouchDefault);
+      canvas.removeEventListener("touchend", preventTouchDefault);
+      canvas.removeEventListener("touchcancel", preventTouchDefault);
+    };
+  }, [status, gameMode, currentWriteChar]);
+
+  useEffect(() => {
+    return () => {
+      document.body.classList.remove("is-writing-hanzi");
+    };
+  }, []);
+
   async function startGame() {
     setLoading(true);
 
@@ -389,6 +416,7 @@ export default function GameClient() {
   function clearFreehandCanvas(resetFeedback = true) {
     freehandStrokesRef.current = [];
     activeFreehandStrokeRef.current = null;
+    document.body.classList.remove("is-writing-hanzi");
     setHasFreehandDrawing(false);
 
     const canvas = writerCanvasRef.current;
@@ -408,6 +436,7 @@ export default function GameClient() {
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-writing-hanzi");
     const point = getCanvasPoint(event);
     const stroke = [point];
     activeFreehandStrokeRef.current = stroke;
@@ -433,6 +462,7 @@ export default function GameClient() {
     if (!activeFreehandStrokeRef.current) return;
     event.preventDefault();
     activeFreehandStrokeRef.current = null;
+    document.body.classList.remove("is-writing-hanzi");
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -648,6 +678,7 @@ export default function GameClient() {
                 aria-label="Khung viết Hán tự"
                 className="writer-canvas"
                 ref={writerCanvasRef}
+                onContextMenu={(event) => event.preventDefault()}
                 onPointerDown={beginFreehandStroke}
                 onPointerMove={moveFreehandStroke}
                 onPointerUp={endFreehandStroke}
