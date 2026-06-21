@@ -55,9 +55,13 @@
 
 .preview-item .row {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   align-items: center;
+}
+
+.preview-item .row .danger-button {
+  width: 100%;
 }
 
 .invalid-item {
@@ -144,4 +148,10 @@
   padding: 8px 10px max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(255, 248, 247, 0.96);
+}
+
+@media (min-width: 720px) {
+  .preview-item .row {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  }
 }

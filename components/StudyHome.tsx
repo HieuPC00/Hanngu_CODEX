@@ -7,7 +7,8 @@ import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
 import { GAME_LESSON_STORAGE_KEY, parseGameLessonItems } from "@/lib/game-lesson";
 import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivation";
 import { getBrowserOwnerId } from "@/lib/shared-access";
-import type { ItemDifficulty, StudyItem } from "@/lib/types";
+import { lessonNumbersFromRows } from "@/lib/lessons";
+import type { ItemDifficulty, ItemType, StudyItem } from "@/lib/types";
 import "./study.css";
 
 type VisibleParts = {
@@ -18,10 +19,12 @@ type VisibleParts = {
 
 type CheckState = "idle" | "correct" | "wrong";
 type DifficultyFilter = "all" | ItemDifficulty;
+type TypeFilter = "all" | ItemType;
+type LessonFilter = "all" | number;
 type LessonMode = "study" | "review";
 
 const defaultVisible: VisibleParts = { hanzi: false, pinyin: false, meaning: true };
-const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
+const itemColumns = "id,user_id,document_id,lesson_no,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 const lessonSize = 10;
 const candidatePageSize = 1000;
 const preferredVoiceKey = "hanngu-preferred-chinese-voice";
@@ -37,6 +40,9 @@ export default function StudyHome() {
   const [checkState, setCheckState] = useState<CheckState>("idle");
   const [feedbackText, setFeedbackText] = useState("");
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+  const [lessonOptions, setLessonOptions] = useState<number[]>([]);
   const lessonComplete = lessonItems.length > 0 && lessonIndex >= lessonItems.length;
   const item = lessonComplete ? null : lessonItems[lessonIndex] || null;
 
@@ -47,6 +53,7 @@ export default function StudyHome() {
 
     localStorage.removeItem("hanngu-visible-parts");
     refreshCount();
+    refreshLessonOptions();
     createPendingGameLesson();
   }, []);
 
@@ -80,13 +87,24 @@ export default function StudyHome() {
     setCount(itemCount || 0);
   }
 
+  async function refreshLessonOptions() {
+    const ownerId = getBrowserOwnerId();
+    try {
+      setLessonOptions(await fetchLessonNumbers(ownerId));
+    } catch {
+      setLessonOptions([]);
+    }
+  }
+
   function setPart(part: keyof VisibleParts) {
     const next = { ...visible, [part]: !visible[part] };
     setVisible(next);
   }
 
-  function changeDifficultyFilter(nextFilter: DifficultyFilter) {
-    setDifficultyFilter(nextFilter);
+  function changeStudyFilters(next: { lesson?: LessonFilter; difficulty?: DifficultyFilter; type?: TypeFilter }) {
+    if (next.lesson !== undefined) setLessonFilter(next.lesson);
+    if (next.difficulty !== undefined) setDifficultyFilter(next.difficulty);
+    if (next.type !== undefined) setTypeFilter(next.type);
     resetLesson();
   }
 
@@ -96,7 +114,7 @@ export default function StudyHome() {
 
     let candidates: StudyItem[] = [];
     try {
-      candidates = await fetchLessonCandidates(ownerId, difficultyFilter);
+      candidates = await fetchLessonCandidates(ownerId, lessonFilter, difficultyFilter, typeFilter);
     } catch {
       setLoading(false);
       alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
@@ -108,7 +126,7 @@ export default function StudyHome() {
       setLoading(false);
       resetLesson();
       resetPractice();
-      alert(difficultyFilter === "all" ? "Chưa có mục học phù hợp." : `Chưa có mục ${labelDifficulty(difficultyFilter)} để học.`);
+      alert("Chưa có dữ liệu phù hợp với các bộ lọc đang chọn.");
       return;
     }
 
@@ -316,7 +334,13 @@ export default function StudyHome() {
 
   return (
     <section className="study-stack">
-      <DifficultyFilterControl value={difficultyFilter} onChange={changeDifficultyFilter} />
+      <StudyFilters
+        lesson={lessonFilter}
+        difficulty={difficultyFilter}
+        type={typeFilter}
+        lessonOptions={lessonOptions}
+        onChange={changeStudyFilters}
+      />
 
       {!item ? (
         lessonComplete ? (
@@ -337,7 +361,7 @@ export default function StudyHome() {
           <div className="ready-card card">
             <div className="learn-mark">学</div>
             <h1>Sẵn sàng học?</h1>
-            <p className="muted">Tạo 1 bài học gồm 10 mục theo mức độ đang chọn.</p>
+            <p className="muted">Tạo 1 bài học gồm 10 mục theo bộ lọc đang chọn.</p>
             <button className="button full-width" type="button" onClick={createLesson} disabled={loading}>
               {loading ? "Đang tạo..." : "Tạo bài học"}
             </button>
@@ -423,22 +447,48 @@ export default function StudyHome() {
   );
 }
 
-function DifficultyFilterControl({ value, onChange }: { value: DifficultyFilter; onChange: (value: DifficultyFilter) => void }) {
+function StudyFilters({
+  lesson,
+  difficulty,
+  type,
+  lessonOptions,
+  onChange
+}: {
+  lesson: LessonFilter;
+  difficulty: DifficultyFilter;
+  type: TypeFilter;
+  lessonOptions: number[];
+  onChange: (next: { lesson?: LessonFilter; difficulty?: DifficultyFilter; type?: TypeFilter }) => void;
+}) {
   return (
-    <div className="difficulty-filter" aria-label="Bộ lọc độ khó">
-      <button className={value === "all" ? "difficulty-filter-button active" : "difficulty-filter-button"} type="button" onClick={() => onChange("all")}>
-        Tất cả
-      </button>
-      {difficultyOptions.map((option) => (
-        <button
-          className={value === option.value ? "difficulty-filter-button active" : "difficulty-filter-button"}
-          type="button"
-          key={option.value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
+    <div className="study-filters" aria-label="Bộ lọc bài học">
+      <label className="study-filter-field">
+        <span>Bài</span>
+        <select value={lesson} onChange={(event) => onChange({ lesson: event.target.value === "all" ? "all" : Number(event.target.value) })}>
+          <option value="all">Tất cả</option>
+          {lessonOptions.map((lessonNo) => (
+            <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+          ))}
+        </select>
+      </label>
+      <label className="study-filter-field">
+        <span>Độ khó</span>
+        <select value={difficulty} onChange={(event) => onChange({ difficulty: event.target.value as DifficultyFilter })}>
+          <option value="all">Tất cả</option>
+          {difficultyOptions.map((option) => (
+            <option value={option.value} key={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="study-filter-field">
+        <span>Loại</span>
+        <select value={type} onChange={(event) => onChange({ type: event.target.value as TypeFilter })}>
+          <option value="all">Tất cả</option>
+          <option value="word">Từ</option>
+          <option value="sentence">Câu</option>
+          <option value="dialogue">Hội thoại</option>
+        </select>
+      </label>
     </div>
   );
 }
@@ -453,7 +503,7 @@ function labelType(type: StudyItem["type"]) {
   return "Câu";
 }
 
-async function fetchLessonCandidates(ownerId: string, difficultyFilter: DifficultyFilter) {
+async function fetchLessonCandidates(ownerId: string, lessonFilter: LessonFilter, difficultyFilter: DifficultyFilter, typeFilter: TypeFilter) {
   const supabase = createClient();
   const candidates: StudyItem[] = [];
   let offset = 0;
@@ -472,6 +522,12 @@ async function fetchLessonCandidates(ownerId: string, difficultyFilter: Difficul
     if (difficultyFilter !== "all") {
       query = query.eq("difficulty", difficultyFilter);
     }
+    if (lessonFilter !== "all") {
+      query = query.eq("lesson_no", lessonFilter);
+    }
+    if (typeFilter !== "all") {
+      query = query.eq("type", typeFilter);
+    }
 
     const { data, error } = await query;
     if (error) throw error;
@@ -484,6 +540,27 @@ async function fetchLessonCandidates(ownerId: string, difficultyFilter: Difficul
   }
 
   return candidates;
+}
+
+async function fetchLessonNumbers(ownerId: string) {
+  const supabase = createClient();
+  const rows: Array<{ lesson_no: number | null; type: ItemType }> = [];
+
+  for (let offset = 0; ; offset += candidatePageSize) {
+    const { data, error } = await supabase
+      .from("items")
+      .select("lesson_no,type")
+      .eq("user_id", ownerId)
+      .order("lesson_no", { ascending: true })
+      .range(offset, offset + candidatePageSize - 1);
+
+    if (error) throw error;
+    const page = (data || []) as Array<{ lesson_no: number | null; type: ItemType }>;
+    rows.push(...page);
+    if (page.length < candidatePageSize) break;
+  }
+
+  return lessonNumbersFromRows(rows);
 }
 
 function selectLessonItems(candidates: StudyItem[], size: number) {

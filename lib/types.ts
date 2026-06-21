@@ -5,6 +5,7 @@ export type StudyItem = {
   id: string;
   user_id: string;
   document_id: string | null;
+  lesson_no: number | null;
   type: ItemType;
   difficulty: ItemDifficulty;
   hanzi: string;
@@ -18,6 +19,7 @@ export type StudyItem = {
 };
 
 export type ExtractedItem = {
+  lesson_no?: number | null;
   type: ItemType;
   difficulty: ItemDifficulty;
   hanzi: string;

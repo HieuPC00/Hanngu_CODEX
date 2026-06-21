@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, inferDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
+import { assignAutomaticLessons, lessonNumbersFromRows, nextLessonNumber } from "@/lib/lessons";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemDifficulty, ItemType } from "@/lib/types";
@@ -13,6 +14,7 @@ import "./upload.css";
 type DuplicateMatch = {
   id?: string;
   source: "library" | "batch";
+  lesson_no?: number | null;
   type: ItemType;
   difficulty: ItemDifficulty;
   hanzi: string;
@@ -38,11 +40,20 @@ export default function UploadClient() {
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<PreviewResult[]>([]);
   const [existingItems, setExistingItems] = useState<DuplicateMatch[]>([]);
+  const [lessonRows, setLessonRows] = useState<DuplicateMatch[]>([]);
+  const [lessonChoice, setLessonChoice] = useState("auto");
+
+  const lessonOptions = useMemo(() => lessonNumbersFromRows(lessonRows), [lessonRows]);
+  const nextLesson = useMemo(() => nextLessonNumber(lessonRows), [lessonRows]);
 
   const validItemCount = useMemo(
     () => results.reduce((sum, result) => sum + result.items.filter(isSaveableStudyItem).length, 0),
     [results]
   );
+
+  useEffect(() => {
+    loadExistingItems().then(setLessonRows);
+  }, []);
 
   function chooseFiles(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files || []).slice(0, 10);
@@ -54,6 +65,7 @@ export default function UploadClient() {
     setProcessing(true);
     const storedItems = await loadExistingItems();
     setExistingItems(storedItems);
+    setLessonRows(storedItems);
 
     try {
       const preparedImages: File[] = [];
@@ -65,10 +77,11 @@ export default function UploadClient() {
 
       setProgress(`Đang trích xuất ${files.length} ảnh bằng 1 lần AI...`);
       const extractedResults = await extractImages(preparedImages);
+      const selectedLesson = resolveLessonChoice(lessonChoice, storedItems);
       const nextResults = extractedResults.map((result) => ({
         fileName: result.fileName,
         error: result.error,
-        items: result.items.map((item) => normalizeStudyItem(item, { inferType: true }))
+        items: result.items.map((item) => normalizeStudyItem({ ...item, lesson_no: selectedLesson }, { inferType: true }))
       }));
       setResults(markDuplicates(nextResults, storedItems));
     } catch (error) {
@@ -123,20 +136,22 @@ export default function UploadClient() {
   async function saveItems() {
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
-    const rows = results.flatMap((result) =>
+    const insertableItems = results.flatMap((result) =>
       result.items
         .map((item) => normalizeStudyItem(item))
         .filter(isInsertableStudyItem)
-        .map((item) => ({
+    );
+    const assignedItems = assignAutomaticLessons(insertableItems, existingItems);
+    const rows = assignedItems.map((item) => ({
           user_id: ownerId,
           document_id: null,
+          lesson_no: item.lesson_no,
           type: item.type,
           difficulty: item.difficulty,
           hanzi: item.hanzi,
           pinyin: item.pinyin,
           meaning: item.meaning
-      }))
-    );
+      }));
     const replacements = results.flatMap((result) => result.items.map((item) => normalizeStudyItem(item)).filter(isReplaceableStudyItem));
 
     if (!rows.length && !replacements.length) {
@@ -159,6 +174,7 @@ export default function UploadClient() {
       const { error } = await supabase
         .from("items")
         .update({
+          lesson_no: item.lesson_no ?? item.replaceTarget?.lesson_no ?? item.duplicateOf?.lesson_no ?? null,
           type: item.type,
           difficulty: item.difficulty,
           hanzi: item.hanzi,
@@ -219,6 +235,12 @@ export default function UploadClient() {
                         </option>
                       ))}
                     </select>
+                    <LessonSelect
+                      value={item.lesson_no}
+                      lessonOptions={lessonOptions}
+                      nextLesson={nextLesson}
+                      onChange={(lessonNo) => updateItem(resultIndex, itemIndex, { lesson_no: lessonNo })}
+                    />
                     <button className="danger-button" type="button" onClick={() => removeItem(resultIndex, itemIndex)}>
                       Xóa
                     </button>
@@ -292,6 +314,17 @@ export default function UploadClient() {
       <h1 className="page-title">Upload ảnh</h1>
       <p className="page-subtitle">Chọn tối đa 10 ảnh có chữ Trung. Mỗi ảnh chỉ gọi AI một lần để tiết kiệm quota.</p>
 
+      <label className="source-field">
+        <span>Lưu vào bài</span>
+        <select className="select" value={lessonChoice} onChange={(event) => setLessonChoice(event.target.value)}>
+          <option value="auto">Tự động</option>
+          {lessonOptions.map((lessonNo) => (
+            <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+          ))}
+          <option value="new">Bài mới (Bài {nextLesson})</option>
+        </select>
+      </label>
+
       <label className="drop-zone">
         <span className="camera-icon">📷</span>
         <strong>{files.length ? `Đã chọn ${files.length} ảnh` : "Bấm để chọn ảnh"}</strong>
@@ -342,7 +375,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await supabase
       .from("items")
-      .select("id,type,difficulty,hanzi,pinyin,meaning")
+      .select("id,lesson_no,type,difficulty,hanzi,pinyin,meaning")
       .eq("user_id", ownerId)
       .range(offset, offset + pageSize - 1);
 
@@ -352,6 +385,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
       ...(data || []).map((item) => ({
         id: item.id,
         source: "library" as const,
+        lesson_no: item.lesson_no,
         type: item.type,
         difficulty: normalizeDifficulty(item.difficulty),
         hanzi: item.hanzi,
@@ -389,6 +423,7 @@ function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[
       if (key && isValidStudyItem(nextItem) && !seen.has(key)) {
         seen.set(key, {
           source: "batch",
+          lesson_no: nextItem.lesson_no,
           type: nextItem.type,
           difficulty: nextItem.difficulty,
           hanzi: nextItem.hanzi,
@@ -408,12 +443,42 @@ function normalizeStudyItem(item: ExtractedItem, options?: { inferType?: boolean
 
   return {
     ...item,
+    lesson_no: item.lesson_no || null,
     type,
     difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(hanzi, type)),
     hanzi,
     pinyin: hasChineseInPinyin(item.pinyin) ? "" : item.pinyin.trim(),
     meaning: cleanMeaning(item.meaning)
   };
+}
+
+function LessonSelect({
+  value,
+  lessonOptions,
+  nextLesson,
+  onChange
+}: {
+  value?: number | null;
+  lessonOptions: number[];
+  nextLesson: number;
+  onChange: (lessonNo: number | null) => void;
+}) {
+  return (
+    <select className="select" value={value || "auto"} onChange={(event) => onChange(event.target.value === "auto" ? null : Number(event.target.value))}>
+      <option value="auto">Bài: Tự động</option>
+      {lessonOptions.map((lessonNo) => (
+        <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+      ))}
+      {!lessonOptions.includes(nextLesson) ? <option value={nextLesson}>Bài mới ({nextLesson})</option> : null}
+    </select>
+  );
+}
+
+function resolveLessonChoice(choice: string, rows: DuplicateMatch[]) {
+  if (choice === "auto") return null;
+  if (choice === "new") return nextLessonNumber(rows);
+  const lessonNo = Number(choice);
+  return Number.isInteger(lessonNo) && lessonNo > 0 ? lessonNo : null;
 }
 
 function isValidStudyItem(item: ExtractedItem) {

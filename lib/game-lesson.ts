@@ -8,6 +8,7 @@ export function serializeGameLessonItems(items: StudyItem[]) {
       id: item.id,
       user_id: item.user_id,
       document_id: item.document_id,
+      lesson_no: item.lesson_no,
       type: item.type,
       difficulty: item.difficulty,
       hanzi: item.hanzi,

@@ -31,6 +31,7 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
+  lesson_no int,
   type public.item_type not null default 'sentence',
   difficulty public.item_difficulty not null default 'easy',
   hanzi text not null,
@@ -101,6 +102,43 @@ alter table public.study_logs drop constraint if exists study_logs_user_id_fkey;
 
 alter table public.items
 add column if not exists difficulty public.item_difficulty not null default 'easy';
+
+alter table public.items
+add column if not exists lesson_no int;
+
+do $$ begin
+  alter table public.items
+  add constraint items_lesson_no_positive check (lesson_no > 0);
+exception
+  when duplicate_object then null;
+end $$;
+
+with ranked as (
+  select
+    id,
+    ceil(row_number() over (partition by user_id order by created_at, id) / 10.0)::int as lesson_no
+  from public.items
+  where lesson_no is null and type = 'word'
+)
+update public.items as item
+set lesson_no = ranked.lesson_no
+from ranked
+where item.id = ranked.id;
+
+with ranked as (
+  select
+    id,
+    ceil(row_number() over (partition by user_id order by created_at, id) / 10.0)::int as lesson_no
+  from public.items
+  where lesson_no is null and type <> 'word'
+)
+update public.items as item
+set lesson_no = ranked.lesson_no
+from ranked
+where item.id = ranked.id;
+
+create index if not exists items_user_lesson_frequency_idx
+on public.items(user_id, lesson_no, type, difficulty, shown_count, last_shown_at);
 
 update public.items
 set difficulty = 'easy'

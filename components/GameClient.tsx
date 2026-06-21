@@ -51,7 +51,7 @@ const handwritingCoverageThreshold = 0.82;
 const handwritingStrokeCoverageThreshold = 0.56;
 const handwritingStrokeReverseCoverageThreshold = 0.32;
 const handwritingPointCoverageRadius = 0.085;
-const itemColumns = "id,user_id,document_id,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
+const itemColumns = "id,user_id,document_id,lesson_no,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at";
 
 export default function GameClient() {
   const router = useRouter();

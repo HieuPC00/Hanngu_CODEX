@@ -3,25 +3,36 @@
   gap: 9px;
 }
 
-.difficulty-filter {
+.study-filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 7px;
 }
 
-.difficulty-filter-button {
-  min-height: 38px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
+.study-filter-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
   color: var(--muted);
+  font-size: 0.72rem;
   font-weight: 850;
 }
 
-.difficulty-filter-button.active {
-  border-color: rgba(37, 99, 235, 0.28);
-  background: rgba(37, 99, 235, 0.08);
-  color: var(--red);
+.study-filter-field span {
+  padding-left: 3px;
+}
+
+.study-filter-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 24px 0 8px;
+  font-size: 0.86rem;
+  font-weight: 850;
 }
 
 .ready-card {
