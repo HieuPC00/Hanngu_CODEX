@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, inferDifficulty, labelDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
-import { assignAutomaticLessons, lessonNumbersFromRows, nextLessonNumber } from "@/lib/lessons";
+import { lessonNumbersFromRows, nextLessonNumber, normalizeLessonNumber } from "@/lib/lessons";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractedItem, ItemDifficulty, ItemType, StudyItem } from "@/lib/types";
@@ -32,7 +32,6 @@ type DuplicateMatch = {
 type ManualItem = ExtractedItem & {
   duplicateOf?: DuplicateMatch;
   replaceTarget?: DuplicateMatch;
-  allowDuplicate?: boolean;
   replaceDuplicate?: boolean;
   validationErrors: string[];
 };
@@ -69,12 +68,12 @@ export default function LibraryClient() {
   const [manualError, setManualError] = useState("");
   const [manualExistingItems, setManualExistingItems] = useState<DuplicateMatch[]>([]);
   const [manualSaving, setManualSaving] = useState(false);
-  const [manualLessonChoice, setManualLessonChoice] = useState("auto");
+  const [manualLessonChoice, setManualLessonChoice] = useState("new");
   const [typeSavingIds, setTypeSavingIds] = useState<string[]>([]);
   const [difficultySavingIds, setDifficultySavingIds] = useState<string[]>([]);
   const [createCount, setCreateCount] = useState(0);
 
-  const manualLessonOptions = useMemo(() => lessonNumbersFromRows(manualExistingItems), [manualExistingItems]);
+  const manualLessonOptions = useMemo(() => lessonNumbersFromRows(manualExistingItems).reverse(), [manualExistingItems]);
   const nextManualLesson = useMemo(() => nextLessonNumber(manualExistingItems), [manualExistingItems]);
 
   const manualSaveableCount = useMemo(() => manualItems.filter(isSaveableManualItem).length, [manualItems]);
@@ -116,6 +115,7 @@ export default function LibraryClient() {
           .select("id,user_id,document_id,lesson_no,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at")
           .eq("user_id", ownerId)
           .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
           .range(offset, offset + pageSize - 1),
         loadStats(),
         loadCreateCount()
@@ -177,7 +177,7 @@ export default function LibraryClient() {
     setManualItems([]);
     setManualError("");
     setManualExistingItems([]);
-    setManualLessonChoice("auto");
+    setManualLessonChoice("new");
   }
 
   async function previewManualText() {
@@ -210,10 +210,11 @@ export default function LibraryClient() {
   }
 
   async function saveManualItems() {
+    if (manualSaving) return;
+
     const ownerId = getBrowserOwnerId();
     const insertableItems = manualItems.filter(isInsertableManualItem);
-    const assignedItems = assignAutomaticLessons(insertableItems, manualExistingItems);
-    const insertRows = assignedItems.map((item) => ({
+    const insertRows = insertableItems.map((item) => ({
       user_id: ownerId,
       document_id: null,
       lesson_no: item.lesson_no,
@@ -226,7 +227,7 @@ export default function LibraryClient() {
     const replacements = manualItems.filter(isReplaceableManualItem);
 
     if (!insertRows.length && !replacements.length) {
-      setManualError("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn 'Vẫn lưu thêm' hoặc 'Thay thế mục cũ'.");
+      setManualError("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn 'Thay thế mục cũ' hoặc xóa khỏi đợt lưu.");
       return;
     }
 
@@ -248,7 +249,7 @@ export default function LibraryClient() {
         const { error } = await supabase
           .from("items")
           .update({
-            lesson_no: item.lesson_no ?? item.replaceTarget?.lesson_no ?? item.duplicateOf?.lesson_no ?? null,
+            lesson_no: item.lesson_no,
             type: item.type,
             difficulty: item.difficulty,
             hanzi: item.hanzi,
@@ -351,11 +352,10 @@ export default function LibraryClient() {
           <label className="manual-lesson-field">
             <span>Lưu vào bài</span>
             <select className="select" value={manualLessonChoice} onChange={(event) => setManualLessonChoice(event.target.value)}>
-              <option value="auto">Tự động</option>
+              <option value="new">Bài mới (Bài {nextManualLesson})</option>
               {manualLessonOptions.map((lessonNo) => (
                 <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
               ))}
-              <option value="new">Bài mới (Bài {nextManualLesson})</option>
             </select>
           </label>
 
@@ -451,26 +451,11 @@ export default function LibraryClient() {
                               onChange={(event) =>
                                 updateManualItem(index, {
                                   replaceDuplicate: event.target.checked,
-                                  replaceTarget: event.target.checked ? duplicate : undefined,
-                                  allowDuplicate: event.target.checked ? false : item.allowDuplicate
+                                  replaceTarget: event.target.checked ? duplicate : undefined
                                 })
                               }
                             />
                             <span>Thay thế mục cũ bằng dữ liệu mới</span>
-                          </label>
-                          <label className="duplicate-choice">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(item.allowDuplicate)}
-                              onChange={(event) =>
-                                updateManualItem(index, {
-                                  allowDuplicate: event.target.checked,
-                                  replaceDuplicate: event.target.checked ? false : item.replaceDuplicate,
-                                  replaceTarget: event.target.checked ? undefined : item.replaceTarget
-                                })
-                              }
-                            />
-                            <span>Vẫn lưu thêm một mục riêng</span>
                           </label>
                         </div>
                       </div>
@@ -502,6 +487,7 @@ export default function LibraryClient() {
                 <div className="library-meta">
                   <span>{labelType(item.type)}</span>
                   <span>{labelDifficulty(item.difficulty)}</span>
+                  <span>Bài {item.lesson_no}</span>
                   <span>Đã hiện {item.shown_count}×</span>
                 </div>
                 <div className="library-controls">
@@ -623,6 +609,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
       .from("items")
       .select("id,lesson_no,type,difficulty,hanzi,pinyin,meaning")
       .eq("user_id", ownerId)
+      .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
     if (error) return allItems;
@@ -704,7 +691,7 @@ function countLeadingChineseLines(lines: string[]) {
 function normalizeManualItem(item: ManualItem): ManualItem {
   const next: ManualItem = {
     ...item,
-    lesson_no: item.lesson_no || null,
+    lesson_no: normalizeLessonNumber(item.lesson_no),
     type: item.type || detectItemType(item.hanzi, item.pinyin),
     difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(item.hanzi, item.type || detectItemType(item.hanzi, item.pinyin))),
     hanzi: item.hanzi.trim(),
@@ -721,6 +708,7 @@ function validateManualItem(item: ExtractedItem) {
   const errors: string[] = [];
 
   if (!item.hanzi.trim()) errors.push("Thiếu Hán tự.");
+  if (!normalizeLessonNumber(item.lesson_no)) errors.push("Mục này chưa được chọn bài.");
   if (!item.pinyin.trim()) errors.push("Thiếu pinyin.");
   if (!item.meaning.trim()) errors.push("Thiếu nghĩa.");
   if (item.hanzi.trim() && !hasChineseText(item.hanzi)) errors.push("Ô Hán tự phải có chữ Trung.");
@@ -747,7 +735,6 @@ function markManualDuplicates(items: ManualItem[], existingItems: DuplicateMatch
       ...normalizedItem,
       duplicateOf,
       replaceTarget: lockedTarget,
-      allowDuplicate: duplicateOf && !lockedTarget ? Boolean(item.allowDuplicate) : false,
       replaceDuplicate: lockedTarget ? true : duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
     };
 
@@ -772,7 +759,7 @@ function isSaveableManualItem(item: ManualItem) {
 }
 
 function isInsertableManualItem(item: ManualItem) {
-  return !item.validationErrors.length && (!item.duplicateOf || Boolean(item.allowDuplicate));
+  return !item.validationErrors.length && !item.duplicateOf;
 }
 
 function isReplaceableManualItem(item: ManualItem) {
@@ -805,19 +792,17 @@ function LessonSelect({
   onChange: (lessonNo: number | null) => void;
 }) {
   return (
-    <select className="select" value={value || "auto"} onChange={(event) => onChange(event.target.value === "auto" ? null : Number(event.target.value))}>
-      <option value="auto">Bài: Tự động</option>
+    <select className="select" value={value || nextLesson} onChange={(event) => onChange(Number(event.target.value))}>
+      {!lessonOptions.includes(nextLesson) ? <option value={nextLesson}>Bài mới ({nextLesson})</option> : null}
       {lessonOptions.map((lessonNo) => (
         <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
       ))}
-      {!lessonOptions.includes(nextLesson) ? <option value={nextLesson}>Bài mới ({nextLesson})</option> : null}
     </select>
   );
 }
 
 function resolveLessonChoice(choice: string, rows: DuplicateMatch[]) {
-  if (choice === "auto") return null;
   if (choice === "new") return nextLessonNumber(rows);
   const lessonNo = Number(choice);
-  return Number.isInteger(lessonNo) && lessonNo > 0 ? lessonNo : null;
+  return Number.isInteger(lessonNo) && lessonNo > 0 ? lessonNo : nextLessonNumber(rows);
 }

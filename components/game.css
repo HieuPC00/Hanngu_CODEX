@@ -70,25 +70,42 @@
   line-height: 1.35;
 }
 
-.game-difficulty-filter {
+.game-filter-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  gap: 6px;
 }
 
-.game-difficulty-filter button {
+.game-filter-row label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.game-filter-row label > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-filter-row select {
+  width: 100%;
+  min-width: 0;
   min-height: 39px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
   color: var(--muted);
+  padding: 0 7px;
   font-weight: 850;
 }
 
-.game-difficulty-filter button.active {
-  border-color: rgba(37, 99, 235, 0.28);
-  background: rgba(37, 99, 235, 0.08);
-  color: var(--red);
+.game-filter-row select:disabled {
+  opacity: 1;
+  background: rgba(107, 114, 128, 0.06);
 }
 
 .game-play-head {

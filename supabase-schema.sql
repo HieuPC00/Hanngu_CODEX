@@ -1,3 +1,5 @@
+begin;
+
 create extension if not exists pgcrypto;
 
 do $$ begin
@@ -31,7 +33,7 @@ create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
-  lesson_no int,
+  lesson_no int not null,
   type public.item_type not null default 'sentence',
   difficulty public.item_difficulty not null default 'easy',
   hanzi text not null,
@@ -136,6 +138,72 @@ update public.items as item
 set lesson_no = ranked.lesson_no
 from ranked
 where item.id = ranked.id;
+
+create or replace function public.normalize_hanzi_key(value text)
+returns text
+language sql
+immutable
+as $function$
+  select translate(
+    regexp_replace(coalesce(value, ''), '[[:space:]]+', '', 'g'),
+    $punct$，。！？、；：「」『』（）《》,.!?;:'"()[]{}<>$punct$,
+    ''
+  );
+$function$;
+
+-- Giữ bản ghi đầu tiên của mỗi Hán tự để một lần upload trùng không tự chuyển bài của dữ liệu cũ.
+with duplicate_groups as (
+  select
+    user_id,
+    public.normalize_hanzi_key(hanzi) as hanzi_key,
+    max(shown_count) as max_shown_count,
+    max(last_shown_at) as max_last_shown_at
+  from public.items
+  group by user_id, public.normalize_hanzi_key(hanzi)
+  having count(*) > 1
+), ranked_duplicates as (
+  select
+    item.id,
+    item.user_id,
+    public.normalize_hanzi_key(item.hanzi) as hanzi_key,
+    row_number() over (
+      partition by item.user_id, public.normalize_hanzi_key(item.hanzi)
+      order by item.created_at asc, item.id asc
+    ) as duplicate_rank
+  from public.items item
+  join duplicate_groups groups
+    on groups.user_id = item.user_id
+   and groups.hanzi_key = public.normalize_hanzi_key(item.hanzi)
+)
+update public.items item
+set shown_count = groups.max_shown_count,
+    last_shown_at = groups.max_last_shown_at
+from duplicate_groups groups
+join ranked_duplicates ranked
+  on ranked.user_id = groups.user_id
+ and ranked.hanzi_key = groups.hanzi_key
+ and ranked.duplicate_rank = 1
+where item.id = ranked.id;
+
+with ranked_duplicates as (
+  select
+    id,
+    row_number() over (
+      partition by user_id, public.normalize_hanzi_key(hanzi)
+      order by created_at asc, id asc
+    ) as duplicate_rank
+  from public.items
+)
+delete from public.items item
+using ranked_duplicates ranked
+where item.id = ranked.id
+  and ranked.duplicate_rank > 1;
+
+alter table public.items
+alter column lesson_no set not null;
+
+create unique index if not exists items_user_hanzi_key_unique_idx
+on public.items(user_id, public.normalize_hanzi_key(hanzi));
 
 create index if not exists items_user_lesson_frequency_idx
 on public.items(user_id, lesson_no, type, difficulty, shown_count, last_shown_at);
@@ -412,3 +480,5 @@ end;
 $$;
 
 grant execute on function public.increment_exam_question_usage(uuid, uuid[]) to anon, authenticated;
+
+commit;

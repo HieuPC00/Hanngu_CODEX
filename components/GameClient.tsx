@@ -6,11 +6,14 @@ import { difficultyOptions, labelDifficulty } from "@/lib/difficulty";
 import { GAME_LESSON_STORAGE_KEY, serializeGameLessonItems } from "@/lib/game-lesson";
 import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivation";
 import { getBrowserOwnerId } from "@/lib/shared-access";
+import { lessonNumbersFromRows } from "@/lib/lessons";
+import { selectStudyItems, uniqueStudyItems } from "@/lib/study-selection";
 import { createClient } from "@/lib/supabase-browser";
 import type { ItemDifficulty, StudyItem } from "@/lib/types";
 import "./game.css";
 
 type DifficultyFilter = "all" | ItemDifficulty;
+type LessonFilter = "all" | number;
 type GameStatus = "setup" | "playing" | "finished";
 type GameMode = "choice" | "write";
 type WriteStatus = "idle" | "loading" | "ready" | "correct" | "wrong" | "error";
@@ -66,6 +69,8 @@ export default function GameClient() {
   const activeFreehandStrokeRef = useRef<Point[] | null>(null);
   const targetStrokePointsRef = useRef<Point[][]>([]);
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
+  const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+  const [lessonOptions, setLessonOptions] = useState<number[]>([]);
   const [gameMode, setGameMode] = useState<GameMode>("choice");
   const [status, setStatus] = useState<GameStatus>("setup");
   const [loading, setLoading] = useState(false);
@@ -89,6 +94,10 @@ export default function GameClient() {
   const correctCount = questions.filter((question) => question.wasCorrect === true).length;
   const wrongCount = questions.filter((question) => question.wasCorrect === false).length;
   const finalScore = questions.length ? Math.round((correctCount / questions.length) * 10) : 0;
+
+  useEffect(() => {
+    fetchGameLessonNumbers(getBrowserOwnerId()).then(setLessonOptions).catch(() => setLessonOptions([]));
+  }, []);
 
   useEffect(() => {
     if (status !== "playing" || gameMode !== "write" || !currentQuestion || !currentWriteChar || writeAnswered) return;
@@ -187,8 +196,8 @@ export default function GameClient() {
     try {
       const supabase = createClient();
       const ownerId = getBrowserOwnerId();
-      const candidates = (await fetchGameCandidates(ownerId, difficultyFilter)).filter((item) => isUsableWord(item, gameMode));
-      const selectedItems = selectGameItems(candidates, Math.min(gameSize, candidates.length));
+      const candidates = (await fetchGameCandidates(ownerId, lessonFilter, difficultyFilter)).filter((item) => isUsableWord(item, gameMode));
+      const selectedItems = selectStudyItems(candidates, gameSize);
 
       if (!selectedItems.length) {
         alert(difficultyFilter === "all" ? "Chưa có từ vựng để chơi game." : `Chưa có từ vựng mức ${labelDifficulty(difficultyFilter)} để chơi game.`);
@@ -546,8 +555,33 @@ export default function GameClient() {
         </div>
 
         <div className="game-section">
-          <h2>Mức độ</h2>
-          <DifficultyFilterControl value={difficultyFilter} onChange={setDifficultyFilter} />
+          <h2>Bộ lọc dữ liệu</h2>
+          <div className="game-filter-row">
+            <label>
+              <span>Bài</span>
+              <select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value === "all" ? "all" : Number(event.target.value))}>
+                <option value="all">Tất cả</option>
+                {lessonOptions.map((lessonNo) => (
+                  <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Mức độ</span>
+              <select value={difficultyFilter} onChange={(event) => setDifficultyFilter(event.target.value as DifficultyFilter)}>
+                <option value="all">Tất cả</option>
+                {difficultyOptions.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Loại</span>
+              <select value="word" disabled aria-label="Game chỉ dùng từ vựng">
+                <option value="word">Từ vựng</option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <button className="button full-width" type="button" onClick={startGame} disabled={loading}>
@@ -748,21 +782,6 @@ function GamePlayHead({
   );
 }
 
-function DifficultyFilterControl({ value, onChange }: { value: DifficultyFilter; onChange: (value: DifficultyFilter) => void }) {
-  return (
-    <div className="game-difficulty-filter" aria-label="Bộ lọc độ khó">
-      <button className={value === "all" ? "active" : ""} type="button" onClick={() => onChange("all")}>
-        Tất cả
-      </button>
-      {difficultyOptions.map((option) => (
-        <button className={value === option.value ? "active" : ""} type="button" key={option.value} onClick={() => onChange(option.value)}>
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function ResultStat({ label, value, tone }: { label: string; value: number; tone?: "good" | "bad" }) {
   return (
     <div className={`game-result-stat ${tone || ""}`}>
@@ -772,7 +791,7 @@ function ResultStat({ label, value, tone }: { label: string; value: number; tone
   );
 }
 
-async function fetchGameCandidates(ownerId: string, difficultyFilter: DifficultyFilter) {
+async function fetchGameCandidates(ownerId: string, lessonFilter: LessonFilter, difficultyFilter: DifficultyFilter) {
   const supabase = createClient();
   const candidates: StudyItem[] = [];
   let offset = 0;
@@ -792,6 +811,9 @@ async function fetchGameCandidates(ownerId: string, difficultyFilter: Difficulty
     if (difficultyFilter !== "all") {
       query = query.eq("difficulty", difficultyFilter);
     }
+    if (lessonFilter !== "all") {
+      query = query.eq("lesson_no", lessonFilter);
+    }
 
     const { data, error } = await query;
     if (error) throw error;
@@ -806,26 +828,26 @@ async function fetchGameCandidates(ownerId: string, difficultyFilter: Difficulty
   return candidates;
 }
 
-function selectGameItems(candidates: StudyItem[], size: number) {
-  const remaining = [...candidates].sort(compareStudyPriority);
-  const selected: StudyItem[] = [];
+async function fetchGameLessonNumbers(ownerId: string) {
+  const supabase = createClient();
+  const rows: Array<{ lesson_no: number; type: "word" }> = [];
 
-  while (remaining.length && selected.length < size) {
-    const bestShownCount = remaining[0].shown_count;
-    const sameShown = remaining.filter((candidate) => candidate.shown_count === bestShownCount).sort(compareLastShownAt);
-    const needed = size - selected.length;
-    const poolSize = Math.min(sameShown.length, Math.max(needed, needed * 3));
-    const picked = shuffleItems(sameShown.slice(0, poolSize)).slice(0, needed);
-    const pickedIds = new Set(picked.map((candidate) => candidate.id));
+  for (let offset = 0; ; offset += candidatePageSize) {
+    const { data, error } = await supabase
+      .from("items")
+      .select("lesson_no,type")
+      .eq("user_id", ownerId)
+      .eq("type", "word")
+      .order("lesson_no", { ascending: false })
+      .range(offset, offset + candidatePageSize - 1);
 
-    selected.push(...picked);
-
-    for (let index = remaining.length - 1; index >= 0; index -= 1) {
-      if (pickedIds.has(remaining[index].id)) remaining.splice(index, 1);
-    }
+    if (error) throw error;
+    const page = (data || []) as Array<{ lesson_no: number; type: "word" }>;
+    rows.push(...page);
+    if (page.length < candidatePageSize) break;
   }
 
-  return selected;
+  return lessonNumbersFromRows(rows).reverse();
 }
 
 function buildGameQuestions(items: StudyItem[], optionPool: StudyItem[]): GameQuestion[] {
@@ -887,16 +909,7 @@ function optionKey(option: GameOption) {
 }
 
 function mergeUniqueItems(items: StudyItem[]) {
-  const seen = new Set<string>();
-  const result: StudyItem[] = [];
-
-  items.forEach((item) => {
-    if (seen.has(item.id)) return;
-    seen.add(item.id);
-    result.push(item);
-  });
-
-  return result;
+  return uniqueStudyItems(items);
 }
 
 function isUsableWord(item: StudyItem, mode: GameMode) {
@@ -904,16 +917,6 @@ function isUsableWord(item: StudyItem, mode: GameMode) {
   if (!collectChineseChars(item.hanzi).length) return false;
   if (mode === "choice") return Boolean(item.pinyin?.trim() && item.meaning?.trim());
   return Boolean(item.meaning?.trim());
-}
-
-function compareStudyPriority(left: StudyItem, right: StudyItem) {
-  return left.shown_count - right.shown_count || compareLastShownAt(left, right);
-}
-
-function compareLastShownAt(left: StudyItem, right: StudyItem) {
-  const leftTime = left.last_shown_at ? new Date(left.last_shown_at).getTime() : 0;
-  const rightTime = right.last_shown_at ? new Date(right.last_shown_at).getTime() : 0;
-  return leftTime - rightTime;
 }
 
 function shuffleItems<T>(items: T[]) {

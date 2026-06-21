@@ -8,6 +8,7 @@ import { GAME_LESSON_STORAGE_KEY, parseGameLessonItems } from "@/lib/game-lesson
 import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivation";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { lessonNumbersFromRows } from "@/lib/lessons";
+import { selectStudyItems } from "@/lib/study-selection";
 import type { ItemDifficulty, ItemType, StudyItem } from "@/lib/types";
 import "./study.css";
 
@@ -121,7 +122,7 @@ export default function StudyHome() {
       return;
     }
 
-    const selectedItems = selectLessonItems(candidates, lessonSize);
+    const selectedItems = selectStudyItems(candidates, lessonSize, { balanceTypes: typeFilter === "all" });
     if (!selectedItems.length) {
       setLoading(false);
       resetLesson();
@@ -560,48 +561,7 @@ async function fetchLessonNumbers(ownerId: string) {
     if (page.length < candidatePageSize) break;
   }
 
-  return lessonNumbersFromRows(rows);
-}
-
-function selectLessonItems(candidates: StudyItem[], size: number) {
-  const remaining = [...candidates].sort(compareStudyPriority);
-  const selected: StudyItem[] = [];
-
-  while (remaining.length && selected.length < size) {
-    const bestShownCount = remaining[0].shown_count;
-    const sameShown = remaining.filter((candidate) => candidate.shown_count === bestShownCount).sort(compareLastShownAt);
-    const needed = size - selected.length;
-    const poolSize = Math.min(sameShown.length, Math.max(needed, needed * 3));
-    const picked = shuffleItems(sameShown.slice(0, poolSize)).slice(0, needed);
-    const pickedIds = new Set(picked.map((candidate) => candidate.id));
-
-    selected.push(...picked);
-
-    for (let index = remaining.length - 1; index >= 0; index -= 1) {
-      if (pickedIds.has(remaining[index].id)) remaining.splice(index, 1);
-    }
-  }
-
-  return selected;
-}
-
-function compareStudyPriority(left: StudyItem, right: StudyItem) {
-  return left.shown_count - right.shown_count || compareLastShownAt(left, right);
-}
-
-function compareLastShownAt(left: StudyItem, right: StudyItem) {
-  const leftTime = left.last_shown_at ? new Date(left.last_shown_at).getTime() : 0;
-  const rightTime = right.last_shown_at ? new Date(right.last_shown_at).getTime() : 0;
-  return leftTime - rightTime;
-}
-
-function shuffleItems(items: StudyItem[]) {
-  const next = [...items];
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
-  }
-  return next;
+  return lessonNumbersFromRows(rows).reverse();
 }
 
 function hanziSizeClass(text: string) {

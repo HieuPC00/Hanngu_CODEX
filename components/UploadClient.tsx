@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, inferDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
-import { assignAutomaticLessons, lessonNumbersFromRows, nextLessonNumber } from "@/lib/lessons";
+import { lessonNumbersFromRows, nextLessonNumber, normalizeLessonNumber } from "@/lib/lessons";
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { cleanMeaning, hasChineseInPinyin, hasChineseText, normalizeChineseText } from "@/lib/text-quality";
 import type { ExtractResult, ExtractedItem, ItemDifficulty, ItemType } from "@/lib/types";
@@ -25,7 +25,6 @@ type DuplicateMatch = {
 type PreviewItem = ExtractedItem & {
   duplicateOf?: DuplicateMatch;
   replaceTarget?: DuplicateMatch;
-  allowDuplicate?: boolean;
   replaceDuplicate?: boolean;
 };
 
@@ -37,13 +36,14 @@ export default function UploadClient() {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState("");
   const [results, setResults] = useState<PreviewResult[]>([]);
   const [existingItems, setExistingItems] = useState<DuplicateMatch[]>([]);
   const [lessonRows, setLessonRows] = useState<DuplicateMatch[]>([]);
-  const [lessonChoice, setLessonChoice] = useState("auto");
+  const [lessonChoice, setLessonChoice] = useState("new");
 
-  const lessonOptions = useMemo(() => lessonNumbersFromRows(lessonRows), [lessonRows]);
+  const lessonOptions = useMemo(() => lessonNumbersFromRows(lessonRows).reverse(), [lessonRows]);
   const nextLesson = useMemo(() => nextLessonNumber(lessonRows), [lessonRows]);
 
   const validItemCount = useMemo(
@@ -134,6 +134,8 @@ export default function UploadClient() {
   }
 
   async function saveItems() {
+    if (saving) return;
+
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
     const insertableItems = results.flatMap((result) =>
@@ -141,8 +143,7 @@ export default function UploadClient() {
         .map((item) => normalizeStudyItem(item))
         .filter(isInsertableStudyItem)
     );
-    const assignedItems = assignAutomaticLessons(insertableItems, existingItems);
-    const rows = assignedItems.map((item) => ({
+    const rows = insertableItems.map((item) => ({
           user_id: ownerId,
           document_id: null,
           lesson_no: item.lesson_no,
@@ -155,43 +156,45 @@ export default function UploadClient() {
     const replacements = results.flatMap((result) => result.items.map((item) => normalizeStudyItem(item)).filter(isReplaceableStudyItem));
 
     if (!rows.length && !replacements.length) {
-      alert("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn lưu thêm hoặc thay thế mục cũ.");
+      alert("Chưa có mục hợp lệ để lưu. Mục trùng cần chọn thay thế mục cũ hoặc xóa khỏi đợt lưu.");
       return;
     }
 
-    if (rows.length) {
-      const { error } = await supabase.from("items").insert(rows);
-      if (error) {
-        alert(`Không lưu được lên Supabase: ${error.message}`);
-        return;
+    setSaving(true);
+    try {
+      if (rows.length) {
+        const { error } = await supabase.from("items").insert(rows);
+        if (error) throw error;
       }
-    }
 
-    for (const item of replacements) {
-      const replacementId = getReplacementId(item);
-      if (!replacementId) continue;
+      for (const item of replacements) {
+        const replacementId = getReplacementId(item);
+        if (!replacementId) continue;
 
-      const { error } = await supabase
-        .from("items")
-        .update({
-          lesson_no: item.lesson_no ?? item.replaceTarget?.lesson_no ?? item.duplicateOf?.lesson_no ?? null,
-          type: item.type,
-          difficulty: item.difficulty,
-          hanzi: item.hanzi,
-          pinyin: item.pinyin,
-          meaning: item.meaning
-        })
-        .eq("id", replacementId)
-        .eq("user_id", ownerId);
+        const { error } = await supabase
+          .from("items")
+          .update({
+            lesson_no: item.lesson_no,
+            type: item.type,
+            difficulty: item.difficulty,
+            hanzi: item.hanzi,
+            pinyin: item.pinyin,
+            meaning: item.meaning
+          })
+          .eq("id", replacementId)
+          .eq("user_id", ownerId);
 
-      if (error) {
-        alert(`Không thay thế được mục cũ: ${error.message}`);
-        return;
+        if (error) throw error;
       }
-    }
 
-    router.push("/");
-    router.refresh();
+      router.push("/");
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không lưu được dữ liệu";
+      alert(`Không lưu được lên Supabase: ${message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (results.length) {
@@ -263,26 +266,11 @@ export default function UploadClient() {
                             onChange={(event) =>
                               updateItem(resultIndex, itemIndex, {
                                 replaceDuplicate: event.target.checked,
-                                replaceTarget: event.target.checked ? duplicate : undefined,
-                                allowDuplicate: event.target.checked ? false : item.allowDuplicate
+                                replaceTarget: event.target.checked ? duplicate : undefined
                               })
                             }
                           />
                           <span>Thay thế mục cũ bằng dữ liệu mới</span>
-                        </label>
-                        <label className="duplicate-choice">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(item.allowDuplicate)}
-                            onChange={(event) =>
-                              updateItem(resultIndex, itemIndex, {
-                                allowDuplicate: event.target.checked,
-                                replaceDuplicate: event.target.checked ? false : item.replaceDuplicate,
-                                replaceTarget: event.target.checked ? undefined : item.replaceTarget
-                              })
-                            }
-                          />
-                          <span>Vẫn lưu thêm một mục riêng</span>
                         </label>
                       </div>
                     </div>
@@ -301,8 +289,8 @@ export default function UploadClient() {
           <button className="ghost-button" type="button" onClick={cancel}>
             Hủy
           </button>
-          <button className="success-button" type="button" onClick={saveItems} disabled={!validItemCount}>
-            Lưu {validItemCount} mục
+          <button className="success-button" type="button" onClick={saveItems} disabled={!validItemCount || saving}>
+            {saving ? "Đang lưu..." : `Lưu ${validItemCount} mục`}
           </button>
         </footer>
       </section>
@@ -317,11 +305,10 @@ export default function UploadClient() {
       <label className="source-field">
         <span>Lưu vào bài</span>
         <select className="select" value={lessonChoice} onChange={(event) => setLessonChoice(event.target.value)}>
-          <option value="auto">Tự động</option>
+          <option value="new">Bài mới (Bài {nextLesson})</option>
           {lessonOptions.map((lessonNo) => (
             <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
           ))}
-          <option value="new">Bài mới (Bài {nextLesson})</option>
         </select>
       </label>
 
@@ -377,6 +364,7 @@ async function loadExistingItems(): Promise<DuplicateMatch[]> {
       .from("items")
       .select("id,lesson_no,type,difficulty,hanzi,pinyin,meaning")
       .eq("user_id", ownerId)
+      .order("id", { ascending: true })
       .range(offset, offset + pageSize - 1);
 
     if (error) return allItems;
@@ -416,7 +404,6 @@ function markDuplicates(results: PreviewResult[], existingItems: DuplicateMatch[
         ...item,
         duplicateOf,
         replaceTarget: lockedTarget,
-        allowDuplicate: duplicateOf && !lockedTarget ? Boolean(item.allowDuplicate) : false,
         replaceDuplicate: lockedTarget ? true : duplicateOf?.source === "library" && duplicateOf.id ? Boolean(item.replaceDuplicate) : false
       };
 
@@ -443,7 +430,7 @@ function normalizeStudyItem(item: ExtractedItem, options?: { inferType?: boolean
 
   return {
     ...item,
-    lesson_no: item.lesson_no || null,
+    lesson_no: normalizeLessonNumber(item.lesson_no),
     type,
     difficulty: normalizeDifficulty(item.difficulty, inferDifficulty(hanzi, type)),
     hanzi,
@@ -464,25 +451,23 @@ function LessonSelect({
   onChange: (lessonNo: number | null) => void;
 }) {
   return (
-    <select className="select" value={value || "auto"} onChange={(event) => onChange(event.target.value === "auto" ? null : Number(event.target.value))}>
-      <option value="auto">Bài: Tự động</option>
+    <select className="select" value={value || nextLesson} onChange={(event) => onChange(Number(event.target.value))}>
+      {!lessonOptions.includes(nextLesson) ? <option value={nextLesson}>Bài mới ({nextLesson})</option> : null}
       {lessonOptions.map((lessonNo) => (
         <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
       ))}
-      {!lessonOptions.includes(nextLesson) ? <option value={nextLesson}>Bài mới ({nextLesson})</option> : null}
     </select>
   );
 }
 
 function resolveLessonChoice(choice: string, rows: DuplicateMatch[]) {
-  if (choice === "auto") return null;
   if (choice === "new") return nextLessonNumber(rows);
   const lessonNo = Number(choice);
-  return Number.isInteger(lessonNo) && lessonNo > 0 ? lessonNo : null;
+  return Number.isInteger(lessonNo) && lessonNo > 0 ? lessonNo : nextLessonNumber(rows);
 }
 
 function isValidStudyItem(item: ExtractedItem) {
-  return hasChineseText(item.hanzi) && !hasChineseInPinyin(item.pinyin);
+  return Boolean(normalizeLessonNumber(item.lesson_no)) && hasChineseText(item.hanzi) && !hasChineseInPinyin(item.pinyin);
 }
 
 function isSaveableStudyItem(item: PreviewItem) {
@@ -490,7 +475,7 @@ function isSaveableStudyItem(item: PreviewItem) {
 }
 
 function isInsertableStudyItem(item: PreviewItem) {
-  return isValidStudyItem(item) && (!item.duplicateOf || Boolean(item.allowDuplicate));
+  return isValidStudyItem(item) && !item.duplicateOf;
 }
 
 function isReplaceableStudyItem(item: PreviewItem) {
