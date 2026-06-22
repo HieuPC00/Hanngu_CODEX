@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import { difficultyOptions, inferDifficulty, labelDifficulty, normalizeDifficulty } from "@/lib/difficulty";
 import { inferItemType } from "@/lib/item-type";
@@ -17,6 +17,10 @@ type LibraryStats = {
   word: number;
   dialogue: number;
 };
+
+type LessonFilter = "all" | number;
+type DifficultyFilter = "all" | ItemDifficulty;
+type TypeFilter = "all" | ItemType;
 
 type DuplicateMatch = {
   id?: string;
@@ -72,6 +76,12 @@ export default function LibraryClient() {
   const [typeSavingIds, setTypeSavingIds] = useState<string[]>([]);
   const [difficultySavingIds, setDifficultySavingIds] = useState<string[]>([]);
   const [createCount, setCreateCount] = useState(0);
+  const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [lessonOptions, setLessonOptions] = useState<number[]>([]);
+  const [filteredTotal, setFilteredTotal] = useState(0);
+  const libraryRequestRef = useRef(0);
 
   const manualLessonOptions = useMemo(() => lessonNumbersFromRows(manualExistingItems).reverse(), [manualExistingItems]);
   const nextManualLesson = useMemo(() => nextLessonNumber(manualExistingItems), [manualExistingItems]);
@@ -92,47 +102,90 @@ export default function LibraryClient() {
   }, [manualItems, manualSaveableCount]);
 
   useEffect(() => {
-    loadLibrary();
+    void loadLessonOptions();
   }, []);
+
+  useEffect(() => {
+    void loadLibrary();
+  }, [lessonFilter, difficultyFilter, typeFilter]);
 
   async function loadLibrary(options?: { append?: boolean }) {
     const append = Boolean(options?.append);
     const supabase = createClient();
     const ownerId = getBrowserOwnerId();
     const offset = append ? items.length : 0;
+    const requestId = ++libraryRequestRef.current;
 
     if (append) {
       setLoadingMore(true);
     } else {
       setStatus("loading");
       setErrorText("");
+      setItems([]);
     }
 
     try {
+      let itemQuery = supabase
+        .from("items")
+        .select("id,user_id,document_id,lesson_no,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at", {
+          count: "exact"
+        })
+        .eq("user_id", ownerId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + pageSize - 1);
+
+      if (lessonFilter !== "all") itemQuery = itemQuery.eq("lesson_no", lessonFilter);
+      if (difficultyFilter !== "all") itemQuery = itemQuery.eq("difficulty", difficultyFilter);
+      if (typeFilter !== "all") itemQuery = itemQuery.eq("type", typeFilter);
+
       const [itemResult, statsResult, nextCreateCount] = await Promise.all([
-        supabase
-          .from("items")
-          .select("id,user_id,document_id,lesson_no,type,difficulty,hanzi,pinyin,meaning,mastery,shown_count,last_shown_at,last_studied_at,created_at")
-          .eq("user_id", ownerId)
-          .order("created_at", { ascending: false })
-          .order("id", { ascending: false })
-          .range(offset, offset + pageSize - 1),
+        itemQuery,
         loadStats(),
         loadCreateCount()
       ]);
 
       if (itemResult.error) throw itemResult.error;
+      if (requestId !== libraryRequestRef.current) return;
 
       setStats(statsResult);
       setCreateCount(nextCreateCount);
+      setFilteredTotal(itemResult.count || 0);
       setItems((current) => (append ? [...current, ...((itemResult.data || []) as StudyItem[])] : ((itemResult.data || []) as StudyItem[])));
       setStatus("ready");
     } catch (error) {
+      if (requestId !== libraryRequestRef.current) return;
       setStatus("error");
       setErrorText(error instanceof Error ? error.message : "Không tải được thư viện từ Supabase.");
     } finally {
-      setLoadingMore(false);
+      if (requestId === libraryRequestRef.current) setLoadingMore(false);
     }
+  }
+
+  async function loadLessonOptions() {
+    const supabase = createClient();
+    const ownerId = getBrowserOwnerId();
+    const rows: Array<{ lesson_no: number | null; type: ItemType }> = [];
+
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from("items")
+        .select("lesson_no,type")
+        .eq("user_id", ownerId)
+        .order("lesson_no", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+
+      if (error) {
+        setErrorText(error.message);
+        return;
+      }
+
+      const page = (data || []) as Array<{ lesson_no: number | null; type: ItemType }>;
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    setLessonOptions(lessonNumbersFromRows(rows).reverse());
   }
 
   async function loadCreateCount(): Promise<number> {
@@ -263,7 +316,7 @@ export default function LibraryClient() {
       }
 
       closeManualForm();
-      await loadLibrary();
+      await Promise.all([loadLibrary(), loadLessonOptions()]);
     } catch (error) {
       setManualError(error instanceof Error ? `Không lưu được lên Supabase: ${error.message}` : "Không lưu được lên Supabase.");
     } finally {
@@ -283,6 +336,7 @@ export default function LibraryClient() {
       const supabase = createClient();
       const { error } = await supabase.from("items").update({ type: nextType }).eq("id", item.id).eq("user_id", getBrowserOwnerId());
       if (error) throw error;
+      await loadLibrary();
     } catch (error) {
       setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, type: previousType } : currentItem)));
       setStats((current) => adjustStatsForTypeChange(current, nextType, previousType));
@@ -303,6 +357,7 @@ export default function LibraryClient() {
       const supabase = createClient();
       const { error } = await supabase.from("items").update({ difficulty: nextDifficulty }).eq("id", item.id).eq("user_id", getBrowserOwnerId());
       if (error) throw error;
+      await loadLibrary();
     } catch (error) {
       setItems((current) => current.map((currentItem) => (currentItem.id === item.id ? { ...currentItem, difficulty: previousDifficulty } : currentItem)));
       alert(error instanceof Error ? `Không đổi được độ khó: ${error.message}` : "Không đổi được độ khó.");
@@ -329,6 +384,18 @@ export default function LibraryClient() {
         <StatCard label="Hội thoại" value={stats.dialogue} />
       </div>
       <div className="create-count-line">Số lần: {createCount}</div>
+
+      <LibraryFilters
+        lesson={lessonFilter}
+        difficulty={difficultyFilter}
+        type={typeFilter}
+        lessonOptions={lessonOptions}
+        onChange={(next) => {
+          if (next.lesson !== undefined) setLessonFilter(next.lesson);
+          if (next.difficulty !== undefined) setDifficultyFilter(next.difficulty);
+          if (next.type !== undefined) setTypeFilter(next.type);
+        }}
+      />
 
       {manualOpen ? (
         <section className="card manual-card">
@@ -511,6 +578,25 @@ export default function LibraryClient() {
               <h2>Đang tải thư viện</h2>
             </div>
           </div>
+        ) : stats.total > 0 ? (
+          <div className="empty-state library-filter-empty">
+            <div>
+              <div className="empty-icon">筛</div>
+              <h2>Không có dữ liệu phù hợp</h2>
+              <p className="muted">Hãy chọn lại Bài, Mức độ hoặc Loại.</p>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => {
+                  setLessonFilter("all");
+                  setDifficultyFilter("all");
+                  setTypeFilter("all");
+                }}
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="empty-state">
             <div>
@@ -522,12 +608,58 @@ export default function LibraryClient() {
         )}
       </div>
 
-      {items.length < stats.total ? (
+      {items.length < filteredTotal ? (
         <button className="ghost-button full-width load-more-button" type="button" onClick={() => loadLibrary({ append: true })} disabled={loadingMore}>
           {loadingMore ? "Đang tải..." : "Tải thêm"}
         </button>
       ) : null}
     </section>
+  );
+}
+
+function LibraryFilters({
+  lesson,
+  difficulty,
+  type,
+  lessonOptions,
+  onChange
+}: {
+  lesson: LessonFilter;
+  difficulty: DifficultyFilter;
+  type: TypeFilter;
+  lessonOptions: number[];
+  onChange: (next: { lesson?: LessonFilter; difficulty?: DifficultyFilter; type?: TypeFilter }) => void;
+}) {
+  return (
+    <div className="library-filter-row" aria-label="Bộ lọc thư viện">
+      <label>
+        <span>Bài</span>
+        <select aria-label="Lọc theo bài" value={lesson} onChange={(event) => onChange({ lesson: event.target.value === "all" ? "all" : Number(event.target.value) })}>
+          <option value="all">Tất cả</option>
+          {lessonOptions.map((lessonNo) => (
+            <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Mức độ</span>
+        <select aria-label="Lọc theo mức độ" value={difficulty} onChange={(event) => onChange({ difficulty: event.target.value as DifficultyFilter })}>
+          <option value="all">Tất cả</option>
+          {difficultyOptions.map((option) => (
+            <option value={option.value} key={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Loại</span>
+        <select aria-label="Lọc theo loại" value={type} onChange={(event) => onChange({ type: event.target.value as TypeFilter })}>
+          <option value="all">Tất cả</option>
+          <option value="word">Từ</option>
+          <option value="sentence">Câu</option>
+          <option value="dialogue">Hội thoại</option>
+        </select>
+      </label>
+    </div>
   );
 }
 
