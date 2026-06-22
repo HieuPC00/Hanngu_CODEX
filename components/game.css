@@ -108,6 +108,37 @@
   background: rgba(107, 114, 128, 0.06);
 }
 
+.game-setup .session-size-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(107, 114, 128, 0.06);
+  padding: 3px;
+}
+
+.game-setup .session-size-control button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.game-setup .session-size-control button.active {
+  background: #fff;
+  color: var(--red);
+  box-shadow: 0 1px 5px rgba(15, 23, 42, 0.08);
+}
+
+.game-setup .session-size-control button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
 .game-play-head {
   display: flex;
   align-items: center;

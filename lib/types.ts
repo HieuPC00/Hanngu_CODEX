@@ -1,5 +1,6 @@
 export type ItemType = "word" | "sentence" | "dialogue";
 export type ItemDifficulty = "easy" | "hard";
+export type SessionSizeMode = "ten" | "all";
 
 export type StudyItem = {
   id: string;

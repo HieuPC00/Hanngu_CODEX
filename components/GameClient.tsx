@@ -8,8 +8,9 @@ import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivat
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { lessonNumbersFromRows } from "@/lib/lessons";
 import { selectStudyItems, uniqueStudyItems } from "@/lib/study-selection";
+import { startStudySession } from "@/lib/study-session";
 import { createClient } from "@/lib/supabase-browser";
-import type { ItemDifficulty, StudyItem } from "@/lib/types";
+import type { ItemDifficulty, SessionSizeMode, StudyItem } from "@/lib/types";
 import "./game.css";
 
 type DifficultyFilter = "all" | ItemDifficulty;
@@ -70,6 +71,7 @@ export default function GameClient() {
   const targetStrokePointsRef = useRef<Point[][]>([]);
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+  const [sessionSizeMode, setSessionSizeMode] = useState<SessionSizeMode>("ten");
   const [lessonOptions, setLessonOptions] = useState<number[]>([]);
   const [gameMode, setGameMode] = useState<GameMode>("choice");
   const [status, setStatus] = useState<GameStatus>("setup");
@@ -194,10 +196,10 @@ export default function GameClient() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
       const ownerId = getBrowserOwnerId();
       const candidates = (await fetchGameCandidates(ownerId, lessonFilter, difficultyFilter)).filter((item) => isUsableWord(item, gameMode));
-      const selectedItems = selectStudyItems(candidates, gameSize);
+      const selectionSize = sessionSizeMode === "all" ? candidates.length : gameSize;
+      const selectedItems = selectStudyItems(candidates, selectionSize);
 
       if (!selectedItems.length) {
         alert(difficultyFilter === "all" ? "Chưa có từ vựng để chơi game." : `Chưa có từ vựng mức ${labelDifficulty(difficultyFilter)} để chơi game.`);
@@ -206,30 +208,7 @@ export default function GameClient() {
         return;
       }
 
-      const now = new Date().toISOString();
-      const updatedItems = await Promise.all(
-        selectedItems.map(async (selectedItem) => {
-          const fallbackItem: StudyItem = {
-            ...selectedItem,
-            shown_count: selectedItem.shown_count + 1,
-            last_shown_at: now
-          };
-          const { data: updated } = await supabase
-            .from("items")
-            .update({
-              shown_count: selectedItem.shown_count + 1,
-              last_shown_at: now
-            })
-            .eq("id", selectedItem.id)
-            .eq("user_id", ownerId)
-            .select(itemColumns)
-            .single();
-
-          return (updated as StudyItem) || fallbackItem;
-        })
-      );
-
-      await supabase.rpc("increment_create_count", { p_user_id: ownerId });
+      const updatedItems = await startStudySession(selectedItems, ownerId);
       setQuestions(buildGameQuestions(updatedItems, mergeUniqueItems([...updatedItems, ...candidates])));
       setQuestionIndex(0);
       resetWriteProgress();
@@ -559,7 +538,14 @@ export default function GameClient() {
           <div className="game-filter-row">
             <label>
               <span>Bài</span>
-              <select value={lessonFilter} onChange={(event) => setLessonFilter(event.target.value === "all" ? "all" : Number(event.target.value))}>
+              <select
+                value={lessonFilter}
+                onChange={(event) => {
+                  const nextLesson = event.target.value === "all" ? "all" : Number(event.target.value);
+                  setLessonFilter(nextLesson);
+                  if (nextLesson === "all") setSessionSizeMode("ten");
+                }}
+              >
                 <option value="all">Tất cả</option>
                 {lessonOptions.map((lessonNo) => (
                   <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
@@ -584,8 +570,27 @@ export default function GameClient() {
           </div>
         </div>
 
+        <div className="game-section">
+          <h2>Số lượng</h2>
+          <div className="session-size-control" aria-label="Số lượng từ trong game">
+            <button className={sessionSizeMode === "ten" ? "active" : ""} type="button" onClick={() => setSessionSizeMode("ten")} aria-pressed={sessionSizeMode === "ten"}>
+              10 từ
+            </button>
+            <button
+              className={sessionSizeMode === "all" ? "active" : ""}
+              type="button"
+              onClick={() => setSessionSizeMode("all")}
+              disabled={lessonFilter === "all"}
+              aria-pressed={sessionSizeMode === "all"}
+              title={lessonFilter === "all" ? "Chọn một bài cụ thể để chơi toàn bài" : undefined}
+            >
+              Toàn bài
+            </button>
+          </div>
+        </div>
+
         <button className="button full-width" type="button" onClick={startGame} disabled={loading}>
-          {loading ? "Đang tạo..." : "Bắt đầu game 10 từ"}
+          {loading ? "Đang tạo..." : sessionSizeMode === "all" ? "Chơi toàn bài" : "Bắt đầu game 10 từ"}
         </button>
       </section>
     </section>

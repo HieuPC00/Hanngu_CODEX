@@ -9,7 +9,8 @@ import { correctMessages, pickRandomMessage, wrongMessages } from "@/lib/motivat
 import { getBrowserOwnerId } from "@/lib/shared-access";
 import { lessonNumbersFromRows } from "@/lib/lessons";
 import { selectStudyItems } from "@/lib/study-selection";
-import type { ItemDifficulty, ItemType, StudyItem } from "@/lib/types";
+import { startStudySession } from "@/lib/study-session";
+import type { ItemDifficulty, ItemType, SessionSizeMode, StudyItem } from "@/lib/types";
 import "./study.css";
 
 type VisibleParts = {
@@ -43,6 +44,7 @@ export default function StudyHome() {
   const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [lessonFilter, setLessonFilter] = useState<LessonFilter>("all");
+  const [sessionSizeMode, setSessionSizeMode] = useState<SessionSizeMode>("ten");
   const [lessonOptions, setLessonOptions] = useState<number[]>([]);
   const lessonComplete = lessonItems.length > 0 && lessonIndex >= lessonItems.length;
   const item = lessonComplete ? null : lessonItems[lessonIndex] || null;
@@ -103,9 +105,18 @@ export default function StudyHome() {
   }
 
   function changeStudyFilters(next: { lesson?: LessonFilter; difficulty?: DifficultyFilter; type?: TypeFilter }) {
-    if (next.lesson !== undefined) setLessonFilter(next.lesson);
+    if (next.lesson !== undefined) {
+      setLessonFilter(next.lesson);
+      if (next.lesson === "all") setSessionSizeMode("ten");
+    }
     if (next.difficulty !== undefined) setDifficultyFilter(next.difficulty);
     if (next.type !== undefined) setTypeFilter(next.type);
+    resetLesson();
+  }
+
+  function changeSessionSizeMode(nextMode: SessionSizeMode) {
+    if (nextMode === "all" && lessonFilter === "all") return;
+    setSessionSizeMode(nextMode);
     resetLesson();
   }
 
@@ -113,36 +124,33 @@ export default function StudyHome() {
     setLoading(true);
     const ownerId = getBrowserOwnerId();
 
-    let candidates: StudyItem[] = [];
     try {
-      candidates = await fetchLessonCandidates(ownerId, lessonFilter, difficultyFilter, typeFilter);
-    } catch {
-      setLoading(false);
-      alert("Không lấy được dữ liệu học từ Supabase. Hãy thử tải lại trang.");
-      return;
-    }
+      const candidates = await fetchLessonCandidates(ownerId, lessonFilter, difficultyFilter, typeFilter);
+      const selectionSize = sessionSizeMode === "all" ? candidates.length : lessonSize;
+      const selectedItems = selectStudyItems(candidates, selectionSize, { balanceTypes: typeFilter === "all" });
 
-    const selectedItems = selectStudyItems(candidates, lessonSize, { balanceTypes: typeFilter === "all" });
-    if (!selectedItems.length) {
-      setLoading(false);
-      resetLesson();
+      if (!selectedItems.length) {
+        resetLesson();
+        resetPractice();
+        alert("Chưa có dữ liệu phù hợp với các bộ lọc đang chọn.");
+        return;
+      }
+
+      const updatedItems = await createLessonFromItems(selectedItems, ownerId);
+      if (!updatedItems.length) {
+        alert("Không tạo được bài học. Hãy thử lại.");
+        return;
+      }
+
+      setLessonIndex(0);
+      setLessonMode("study");
       resetPractice();
-      alert("Chưa có dữ liệu phù hợp với các bộ lọc đang chọn.");
-      return;
-    }
-
-    const updatedItems = await createLessonFromItems(selectedItems, ownerId);
-    if (!updatedItems.length) {
+      void refreshCount();
+    } catch (error) {
+      alert(error instanceof Error ? `Không tạo được bài học: ${error.message}` : "Không tạo được bài học từ Supabase. Hãy thử lại.");
+    } finally {
       setLoading(false);
-      alert("Không tạo được bài học. Hãy thử lại.");
-      return;
     }
-
-    setLessonIndex(0);
-    setLessonMode("study");
-    setLoading(false);
-    resetPractice();
-    refreshCount();
   }
 
   async function createPendingGameLesson() {
@@ -152,60 +160,37 @@ export default function StudyHome() {
     sessionStorage.removeItem(GAME_LESSON_STORAGE_KEY);
     setLoading(true);
 
-    const ownerId = getBrowserOwnerId();
-    const supabase = createClient();
-    const ids = pendingItems.map((pendingItem) => pendingItem.id);
-    const { data, error } = await supabase.from("items").select(itemColumns).eq("user_id", ownerId).in("id", ids);
+    try {
+      const ownerId = getBrowserOwnerId();
+      const supabase = createClient();
+      const ids = pendingItems.map((pendingItem) => pendingItem.id);
+      const { data, error } = await supabase.from("items").select(itemColumns).eq("user_id", ownerId).in("id", ids);
 
-    if (error) {
+      if (error) throw error;
+
+      const itemsById = new Map(((data || []) as StudyItem[]).map((studyItem) => [studyItem.id, studyItem]));
+      const orderedItems = ids.flatMap((id) => {
+        const found = itemsById.get(id);
+        return found ? [found] : [];
+      });
+      const updatedItems = await createLessonFromItems(orderedItems, ownerId);
+
+      setLessonItems(updatedItems);
+      setLessonIndex(0);
+      setLessonMode("study");
+      resetPractice();
+      void refreshCount();
+    } catch (error) {
+      alert(error instanceof Error ? `Không tạo được bài học từ game: ${error.message}` : "Không tạo được bài học từ game. Hãy thử lại.");
+    } finally {
       setLoading(false);
-      alert("Không tạo được bài học từ game. Hãy thử lại.");
-      return;
     }
-
-    const itemsById = new Map(((data || []) as StudyItem[]).map((studyItem) => [studyItem.id, studyItem]));
-    const orderedItems = ids.flatMap((id) => {
-      const found = itemsById.get(id);
-      return found ? [found] : [];
-    });
-    const updatedItems = await createLessonFromItems(orderedItems, ownerId);
-
-    setLessonItems(updatedItems);
-    setLessonIndex(0);
-    setLessonMode("study");
-    setLoading(false);
-    resetPractice();
-    refreshCount();
   }
 
   async function createLessonFromItems(selectedItems: StudyItem[], ownerId: string) {
     if (!selectedItems.length) return [];
 
-    const supabase = createClient();
-    const now = new Date().toISOString();
-    const updatedItems = await Promise.all(
-      selectedItems.map(async (selectedItem) => {
-        const fallbackItem: StudyItem = {
-          ...selectedItem,
-          shown_count: selectedItem.shown_count + 1,
-          last_shown_at: now
-        };
-        const { data: updated } = await supabase
-          .from("items")
-          .update({
-            shown_count: selectedItem.shown_count + 1,
-            last_shown_at: now
-          })
-          .eq("id", selectedItem.id)
-          .eq("user_id", ownerId)
-          .select(itemColumns)
-          .single();
-
-        return (updated as StudyItem) || fallbackItem;
-      })
-    );
-
-    await incrementCreateCount(ownerId);
+    const updatedItems = await startStudySession(selectedItems, ownerId);
     setLessonItems(updatedItems);
     return updatedItems;
   }
@@ -228,11 +213,6 @@ export default function StudyHome() {
     setLessonIndex(0);
     setLessonMode("study");
     resetPractice();
-  }
-
-  async function incrementCreateCount(ownerId: string) {
-    const supabase = createClient();
-    await supabase.rpc("increment_create_count", { p_user_id: ownerId });
   }
 
   function resetPractice() {
@@ -339,8 +319,10 @@ export default function StudyHome() {
         lesson={lessonFilter}
         difficulty={difficultyFilter}
         type={typeFilter}
+        sizeMode={sessionSizeMode}
         lessonOptions={lessonOptions}
         onChange={changeStudyFilters}
+        onSizeModeChange={changeSessionSizeMode}
       />
 
       {!item ? (
@@ -355,16 +337,18 @@ export default function StudyHome() {
               Ôn lại {lessonItems.length} mục vừa học
             </button>
             <button className="ghost-button full-width" type="button" onClick={createLesson} disabled={loading}>
-              {loading ? "Đang tạo..." : "Tạo bài học mới"}
+              {loading ? "Đang tạo..." : sessionSizeMode === "all" ? "Học toàn bài mới" : "Tạo bài học mới"}
             </button>
           </div>
         ) : (
           <div className="ready-card card">
             <div className="learn-mark">学</div>
             <h1>Sẵn sàng học?</h1>
-            <p className="muted">Tạo 1 bài học gồm 10 mục theo bộ lọc đang chọn.</p>
+            <p className="muted">
+              {sessionSizeMode === "all" ? "Học toàn bộ mục phù hợp trong bài đã chọn." : "Tạo 1 bài học gồm tối đa 10 mục theo bộ lọc đang chọn."}
+            </p>
             <button className="button full-width" type="button" onClick={createLesson} disabled={loading}>
-              {loading ? "Đang tạo..." : "Tạo bài học"}
+              {loading ? "Đang tạo..." : sessionSizeMode === "all" ? "Học toàn bài" : "Tạo bài học 10 mục"}
             </button>
           </div>
         )
@@ -452,45 +436,66 @@ function StudyFilters({
   lesson,
   difficulty,
   type,
+  sizeMode,
   lessonOptions,
-  onChange
+  onChange,
+  onSizeModeChange
 }: {
   lesson: LessonFilter;
   difficulty: DifficultyFilter;
   type: TypeFilter;
+  sizeMode: SessionSizeMode;
   lessonOptions: number[];
   onChange: (next: { lesson?: LessonFilter; difficulty?: DifficultyFilter; type?: TypeFilter }) => void;
+  onSizeModeChange: (nextMode: SessionSizeMode) => void;
 }) {
   return (
-    <div className="study-filters" aria-label="Bộ lọc bài học">
-      <label className="study-filter-field">
-        <span>Bài</span>
-        <select value={lesson} onChange={(event) => onChange({ lesson: event.target.value === "all" ? "all" : Number(event.target.value) })}>
-          <option value="all">Tất cả</option>
-          {lessonOptions.map((lessonNo) => (
-            <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
-          ))}
-        </select>
-      </label>
-      <label className="study-filter-field">
-        <span>Độ khó</span>
-        <select value={difficulty} onChange={(event) => onChange({ difficulty: event.target.value as DifficultyFilter })}>
-          <option value="all">Tất cả</option>
-          {difficultyOptions.map((option) => (
-            <option value={option.value} key={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label className="study-filter-field">
-        <span>Loại</span>
-        <select value={type} onChange={(event) => onChange({ type: event.target.value as TypeFilter })}>
-          <option value="all">Tất cả</option>
-          <option value="word">Từ</option>
-          <option value="sentence">Câu</option>
-          <option value="dialogue">Hội thoại</option>
-        </select>
-      </label>
-    </div>
+    <section className="study-filter-panel" aria-label="Bộ lọc bài học">
+      <div className="study-filters">
+        <label className="study-filter-field">
+          <span>Bài</span>
+          <select value={lesson} onChange={(event) => onChange({ lesson: event.target.value === "all" ? "all" : Number(event.target.value) })}>
+            <option value="all">Tất cả</option>
+            {lessonOptions.map((lessonNo) => (
+              <option value={lessonNo} key={lessonNo}>Bài {lessonNo}</option>
+            ))}
+          </select>
+        </label>
+        <label className="study-filter-field">
+          <span>Độ khó</span>
+          <select value={difficulty} onChange={(event) => onChange({ difficulty: event.target.value as DifficultyFilter })}>
+            <option value="all">Tất cả</option>
+            {difficultyOptions.map((option) => (
+              <option value={option.value} key={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="study-filter-field">
+          <span>Loại</span>
+          <select value={type} onChange={(event) => onChange({ type: event.target.value as TypeFilter })}>
+            <option value="all">Tất cả</option>
+            <option value="word">Từ</option>
+            <option value="sentence">Câu</option>
+            <option value="dialogue">Hội thoại</option>
+          </select>
+        </label>
+      </div>
+      <div className="session-size-control" aria-label="Số lượng mục trong bài học">
+        <button className={sizeMode === "ten" ? "active" : ""} type="button" onClick={() => onSizeModeChange("ten")} aria-pressed={sizeMode === "ten"}>
+          10 mục
+        </button>
+        <button
+          className={sizeMode === "all" ? "active" : ""}
+          type="button"
+          onClick={() => onSizeModeChange("all")}
+          disabled={lesson === "all"}
+          aria-pressed={sizeMode === "all"}
+          title={lesson === "all" ? "Chọn một bài cụ thể để học toàn bài" : undefined}
+        >
+          Toàn bài
+        </button>
+      </div>
+    </section>
   );
 }
 

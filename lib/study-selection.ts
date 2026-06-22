@@ -24,6 +24,10 @@ export function selectStudyItems(items: StudyItem[], size: number, options?: { b
   const targetSize = Math.min(size, candidates.length);
   if (!targetSize) return [];
 
+  if (targetSize === candidates.length) {
+    return selectByPriority(candidates, targetSize);
+  }
+
   if (!options?.balanceTypes) {
     return selectByPriority(candidates, targetSize);
   }

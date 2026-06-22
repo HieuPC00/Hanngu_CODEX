@@ -106,6 +106,20 @@ export default function LibraryClient() {
   }, []);
 
   useEffect(() => {
+    const refreshCreateCount = () => {
+      if (document.visibilityState !== "visible") return;
+      void loadCreateCount().then(setCreateCount).catch(() => undefined);
+    };
+
+    window.addEventListener("focus", refreshCreateCount);
+    document.addEventListener("visibilitychange", refreshCreateCount);
+    return () => {
+      window.removeEventListener("focus", refreshCreateCount);
+      document.removeEventListener("visibilitychange", refreshCreateCount);
+    };
+  }, []);
+
+  useEffect(() => {
     void loadLibrary();
   }, [lessonFilter, difficultyFilter, typeFilter]);
 
@@ -193,7 +207,7 @@ export default function LibraryClient() {
     const ownerId = getBrowserOwnerId();
     const { data, error } = await supabase.from("study_counters").select("create_count").eq("user_id", ownerId).maybeSingle();
 
-    if (error) return 0;
+    if (error) throw error;
     return data?.create_count || 0;
   }
 
